@@ -48,7 +48,7 @@ describe('quotation email delivery', () => {
     )
   })
 
-  it('shows one success toast after emailing a generated quotation', async () => {
+  it('confirms allocation and successful email delivery', async () => {
     sendQuotationEmail.mockResolvedValue({
       status: 'sent',
       recipient: 'client@example.com',
@@ -58,9 +58,10 @@ describe('quotation email delivery', () => {
     await chooseBrand()
     await generate()
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'Quotation generated and emailed successfully.'
-    )
+    const notification = await screen.findByRole('status')
+
+    expect(notification).toHaveTextContent('Quotation generated and emailed successfully.')
+    expect(notification).toHaveTextContent('SMS credits have been allocated.')
 
     expect(screen.queryByLabelText('Email delivery status')).not.toBeInTheDocument()
     expect(createQuotation).toHaveBeenCalledTimes(1)
@@ -77,7 +78,7 @@ describe('quotation email delivery', () => {
     expect(screen.queryByLabelText('Email delivery status')).not.toBeInTheDocument()
   })
 
-  it('shows a failure toast and retains the retry option', async () => {
+  it('confirms allocation even when email delivery fails, then allows retry', async () => {
     sendQuotationEmail
       .mockRejectedValueOnce(new Error('Email could not be sent. Please try again.'))
       .mockResolvedValueOnce({ status: 'sent', recipient: 'client@example.com' })
@@ -86,9 +87,10 @@ describe('quotation email delivery', () => {
     await chooseBrand()
     await generate()
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Quotation generated, but the email could not be sent.'
-    )
+    const notification = await screen.findByRole('alert')
+
+    expect(notification).toHaveTextContent('Quotation generated, but the email could not be sent.')
+    expect(notification).toHaveTextContent('SMS credits were allocated.')
 
     expect(screen.getByLabelText('Email delivery status')).toHaveTextContent('Email not sent.')
     expect(screen.getByRole('button', { name: 'Retry Email' })).toBeInTheDocument()
@@ -105,7 +107,7 @@ describe('quotation email delivery', () => {
     expect(screen.queryByLabelText('Email delivery status')).not.toBeInTheDocument()
   })
 
-  it('waits for email delivery before showing the final toast', async () => {
+  it('confirms allocation while email delivery is pending', async () => {
     let resolveEmail
 
     sendQuotationEmail.mockImplementationOnce(() => new Promise((resolve) => {
@@ -120,7 +122,9 @@ describe('quotation email delivery', () => {
     expect(screen.getByLabelText('Email delivery status')).toHaveTextContent(
       'Sending quotation to client…'
     )
-    expect(screen.queryByText('Quotation generated and emailed successfully.')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Quotation generated. SMS credits allocated successfully.'
+    )
 
     await act(async () => {
       resolveEmail({ status: 'sent', recipient: 'client@example.com' })
@@ -152,5 +156,23 @@ describe('quotation email delivery', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Quotation generation failed.')
     expect(sendQuotationEmail).not.toHaveBeenCalled()
     expect(screen.queryByText('Quotation generated and emailed successfully.')).not.toBeInTheDocument()
+  })
+
+  it('identifies an allocation failure and does not attempt email delivery', async () => {
+    createQuotation.mockRejectedValueOnce(
+      new Error('SMS credit allocation failed: Invalid outlet allocation.')
+    )
+
+    render(<App />)
+    await chooseBrand()
+    await generate()
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'SMS credit allocation failed: Invalid outlet allocation.'
+    )
+    expect(screen.getByRole('heading', { name: 'SMS Top Up' })).toBeInTheDocument()
+    expect(sendQuotationEmail).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'History' })).not.toBeInTheDocument()
+    expect(screen.queryByText('SMS credits allocated successfully.')).not.toBeInTheDocument()
   })
 })

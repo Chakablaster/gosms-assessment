@@ -103,7 +103,7 @@ function useSmsReload() {
     if (pendingEmails.current.has(requestId) || workflow.requestsById[requestId]?.email?.status === 'sent') return
 
     pendingEmails.current.add(requestId)
-    setToast(null)
+    if (isRetry) setToast(null)
     dispatch({ type: 'EMAIL_SEND_STARTED', requestId })
 
     void sendQuotationEmail(quotation)
@@ -112,7 +112,7 @@ function useSmsReload() {
         setToast({
           message: isRetry
             ? 'Quotation email sent successfully.'
-            : 'Quotation generated and emailed successfully.',
+            : 'Quotation generated and emailed successfully. SMS credits have been allocated.',
           variant: 'success',
         })
       })
@@ -121,7 +121,7 @@ function useSmsReload() {
         setToast({
           message: isRetry
             ? 'Quotation email could not be sent.'
-            : 'Quotation generated, but the email could not be sent.',
+            : 'Quotation generated, but the email could not be sent. SMS credits were allocated.',
           variant: 'error',
         })
       })
@@ -156,6 +156,10 @@ function useSmsReload() {
       setViewedRequestId(requestId)
       setQuotationOrigin('top-up')
       setScreen('quotation')
+      setToast({
+        message: 'Quotation generated. SMS credits allocated successfully.',
+        variant: 'success',
+      })
 
       setCreditBalances(null)
       void refreshCreditBalances()

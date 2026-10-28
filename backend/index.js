@@ -117,12 +117,15 @@ createServer(async (req, res) => {
 
     respond(res, 404, { error: 'Not found.' })
   } catch (error) {
+    const allocationFailure = error instanceof CreditAllocationError
     const expected = error instanceof QuotationError ||
-      error instanceof CreditAllocationError ||
+      allocationFailure ||
       error instanceof EmailError
 
     respond(res, expected ? error.status : 500, {
-      error: expected ? error.message : 'Server error.',
+      error: allocationFailure
+        ? `SMS credit allocation failed: ${error.message}`
+        : expected ? error.message : 'Server error.',
     })
   }
 }).listen(3001, '127.0.0.1', () => {
