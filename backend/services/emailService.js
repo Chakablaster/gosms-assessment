@@ -1,4 +1,4 @@
-import { generateQuotation } from '../src/logic/quotation.js'
+import { generateQuotation } from '../logic/quotation.js'
 
 export class EmailError extends Error {
   constructor(message, status = 400) {
