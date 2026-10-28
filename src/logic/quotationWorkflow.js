@@ -45,12 +45,14 @@ function createRequest(state, brandId) {
   }
 
   const id = `request-${state.nextRequestNumber}`
+
   requestsById[id] = {
     id,
     brandId,
     status: 'draft',
     creditsByOutlet: {},
     quotation: null,
+    email: { status: 'not_sent', error: null },
   }
 
   return {
@@ -62,15 +64,15 @@ function createRequest(state, brandId) {
 }
 
 export function workflowReducer(state, action) {
-  const { brandId } = action
-  const current = getActiveRequest(state, brandId)
+  const current = getActiveRequest(state, action.brandId)
+  const target = state.requestsById[action.requestId]
 
   switch (action.type) {
     case 'OPEN_BRAND':
-      return current ? state : createRequest(state, brandId)
+      return current ? state : createRequest(state, action.brandId)
 
     case 'START_NEW':
-      return createRequest(state, brandId)
+      return createRequest(state, action.brandId)
 
     case 'SET_CREDIT': {
       if (current?.status !== 'draft') return state
@@ -106,6 +108,39 @@ export function workflowReducer(state, action) {
         },
       }
     }
+
+    case 'EMAIL_SEND_STARTED':
+      if (target?.status !== 'generated' || ['sending', 'sent'].includes(target.email.status)) return state
+
+      return {
+        ...state,
+        requestsById: {
+          ...state.requestsById,
+          [target.id]: { ...target, email: { status: 'sending', error: null } },
+        },
+      }
+
+    case 'EMAIL_SEND_SUCCEEDED':
+      if (target?.email.status !== 'sending') return state
+
+      return {
+        ...state,
+        requestsById: {
+          ...state.requestsById,
+          [target.id]: { ...target, email: { status: 'sent', error: null } },
+        },
+      }
+
+    case 'EMAIL_SEND_FAILED':
+      if (target?.email.status !== 'sending') return state
+
+      return {
+        ...state,
+        requestsById: {
+          ...state.requestsById,
+          [target.id]: { ...target, email: { status: 'failed', error: action.error } },
+        },
+      }
 
     default:
       return state

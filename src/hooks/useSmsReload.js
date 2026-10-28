@@ -1,7 +1,8 @@
-import { useReducer, useState } from 'react'
+import { useReducer, useRef, useState } from 'react'
 import { brands, companies, outlets } from '../data/mockData'
 import { getTopUpDetails } from '../logic/topUp'
 import { generateQuotation } from '../logic/quotation'
+import { sendQuotationEmail } from '../services/quotationEmail'
 import { initialWorkflowState, workflowReducer, getActiveRequest, getBrandQuotations, getBrandQuotedCredits, getOutletCurrentCredits } from '../logic/quotationWorkflow'
 
 function useSmsReload() {
@@ -12,6 +13,7 @@ function useSmsReload() {
   const [quotationOrigin, setQuotationOrigin] = useState('top-up')
   const [quotationError, setQuotationError] = useState('')
   const [toastMessage, setToastMessage] = useState('')
+  const pendingEmails = useRef(new Set())
 
   const currentRequest = getActiveRequest(workflow, selectedBrandId)
   const creditsByOutlet = currentRequest?.creditsByOutlet ?? {}
@@ -37,23 +39,47 @@ function useSmsReload() {
     setQuotationError('')
   }
 
+  function deliverQuotation(requestId, quotation) {
+    if (pendingEmails.current.has(requestId) || workflow.requestsById[requestId]?.email?.status === 'sent') return
+
+    pendingEmails.current.add(requestId)
+    dispatch({ type: 'EMAIL_SEND_STARTED', requestId })
+
+    void sendQuotationEmail(quotation)
+      .then(() => dispatch({ type: 'EMAIL_SEND_SUCCEEDED', requestId }))
+      .catch((error) => dispatch({ type: 'EMAIL_SEND_FAILED', requestId, error: error.message }))
+      .finally(() => pendingEmails.current.delete(requestId))
+  }
+
   function generateCurrentQuotation() {
     if (currentRequest?.status !== 'draft') return
 
     const timestamp = Math.max(Date.now(), workflow.lastQuotationTimestamp + 1)
-    const result = generateQuotation(selectedBrand, selectedOutlets, creditsByOutlet, new Date(timestamp))
+    const result = generateQuotation(
+      selectedBrand,
+      selectedOutlets,
+      creditsByOutlet,
+      new Date(timestamp)
+    )
 
     if (result.error) {
       setQuotationError(result.error)
       return
     }
 
-    dispatch({ type: 'GENERATION_SUCCEEDED', brandId: selectedBrandId, quotation: result.quotation })
+    dispatch({
+      type: 'GENERATION_SUCCEEDED',
+      brandId: selectedBrandId,
+      quotation: result.quotation,
+    })
+
     setViewedRequestId(currentRequest.id)
     setQuotationOrigin('top-up')
     setQuotationError('')
     setToastMessage('Quotation generated successfully.')
     setScreen('quotation')
+
+    deliverQuotation(currentRequest.id, result.quotation)
   }
 
   function viewQuotationFromHistory(requestId) {
@@ -63,8 +89,17 @@ function useSmsReload() {
     setScreen('quotation')
   }
 
+  function retryViewedEmail() {
+    if (viewedRequest?.email?.status !== 'failed') return
+    deliverQuotation(viewedRequest.id, viewedRequest.quotation)
+  }
+
   function backFromQuotation() {
-    if (quotationOrigin === 'top-up' && currentRequest?.status === 'generated' && currentRequest.id === viewedRequestId) {
+    if (
+      quotationOrigin === 'top-up' &&
+      currentRequest?.status === 'generated' &&
+      currentRequest.id === viewedRequestId
+    ) {
       dispatch({ type: 'START_NEW', brandId: selectedBrandId })
     }
 
@@ -86,6 +121,7 @@ function useSmsReload() {
     quotedCredits: getBrandQuotedCredits(workflow, selectedBrandId),
     previousQuotations,
     viewedQuotation: viewedRequest?.quotation,
+    viewedEmail: viewedRequest?.email,
     quotationBackLabel: quotationOrigin === 'history' ? 'Back to History' : 'Back to SMS Top Up',
     quotationError,
     toastMessage,
@@ -93,6 +129,7 @@ function useSmsReload() {
     continueToTopUp,
     changeCredit,
     generateCurrentQuotation,
+    retryViewedEmail,
     viewQuotationFromHistory,
     backFromQuotation,
     showBrandSelection: () => setScreen('choose'),

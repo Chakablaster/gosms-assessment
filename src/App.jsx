@@ -20,6 +20,8 @@ function App() {
         {flow.screen === 'quotation' && flow.viewedQuotation ? (
           <QuotationView
             quotation={flow.viewedQuotation}
+            email={flow.viewedEmail}
+            onRetryEmail={flow.retryViewedEmail}
             backLabel={flow.quotationBackLabel}
             onBack={flow.backFromQuotation}
           />
