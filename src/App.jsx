@@ -1,88 +1,62 @@
-import { useState } from 'react'
 import ChooseBusinessView from './components/ChooseBusinessView'
 import SmsTopUpView from './components/SmsTopUpView'
-import { brands, companies, outlets } from './data/mockData'
-import { validateCreditAmount, calculateTotalCredits } from './logic/credits'
+import QuotationView from './components/QuotationView'
+import QuotationHistoryView from './components/QuotationHistoryView'
+import Toast from './components/Toast'
+import useSmsReload from './hooks/useSmsReload'
 
 function App() {
-  const [selectedBrandId, setSelectedBrandId] = useState('')
-  const [showTopUp, setShowTopUp] = useState(false)
-  const [creditsByOutlet, setCreditsByOutlet] = useState({})
-
-  const selectedBrand = brands.find(
-    (brand) => brand.id === selectedBrandId
-  )
-
-  const selectedOutlets = outlets
-    .filter((outlet) => outlet.brandId === selectedBrandId)
-    .map((outlet) => ({
-      ...outlet,
-      companyName:
-        companies.find(
-          (company) => company.id === outlet.companyId
-        )?.name ?? 'Company unavailable',
-    }))
-
-  const errorsByOutlet = Object.fromEntries(
-    selectedOutlets.map((outlet) => [
-      outlet.id,
-      validateCreditAmount(creditsByOutlet[outlet.id] ?? '0'),
-    ])
-  )
-
-  const totalCredits = calculateTotalCredits(
-    selectedOutlets,
-    creditsByOutlet
-  )
-
-  function handleBrandChange(brandId) {
-    if (brandId !== selectedBrandId) {
-      setCreditsByOutlet({})
-    }
-
-    setSelectedBrandId(brandId)
-  }
-
-  function handleCreditChange(outletId, value) {
-    setCreditsByOutlet((previous) => ({
-      ...previous,
-      [outletId]: value,
-    }))
-  }
+  const flow = useSmsReload()
 
   return (
     <div className="min-h-screen bg-canvas text-text-primary">
       <header className="border-b border-border bg-surface">
         <div className="mx-auto max-w-5xl px-4 py-5 sm:px-6">
-          <span className="text-xl font-bold tracking-tight text-brand">
-            GoSMS
-          </span>
+          <span className="text-xl font-bold tracking-tight text-brand">GoSMS</span>
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
-        {showTopUp ? (
+        {flow.screen === 'quotation' && flow.viewedQuotation ? (
+          <QuotationView
+            quotation={flow.viewedQuotation}
+            backLabel={flow.quotationBackLabel}
+            onBack={flow.backFromQuotation}
+          />
+        ) : flow.screen === 'history' ? (
+          <QuotationHistoryView
+            brandName={flow.selectedBrandName}
+            requests={flow.previousQuotations}
+            quotedCredits={flow.quotedCredits}
+            onBack={flow.showTopUp}
+            onView={flow.viewQuotationFromHistory}
+          />
+        ) : flow.screen === 'top-up' ? (
           <SmsTopUpView
-            selectedBrandName={selectedBrand?.name ?? ''}
-            onChangeBrand={() => setShowTopUp(false)}
-            outlets={selectedOutlets}
-            creditsByOutlet={creditsByOutlet}
-            errorsByOutlet={errorsByOutlet}
-            onCreditChange={handleCreditChange}
-            onReset={() => setCreditsByOutlet({})}
-            totalCredits={totalCredits}
+            selectedBrandName={flow.selectedBrandName}
+            onChangeBrand={flow.showBrandSelection}
+            outlets={flow.selectedOutlets}
+            creditsByOutlet={flow.creditsByOutlet}
+            currentCreditsByOutlet={flow.currentCreditsByOutlet}
+            errorsByOutlet={flow.errorsByOutlet}
+            onCreditChange={flow.changeCredit}
+            totalCredits={flow.totalCredits}
+            quotationError={flow.quotationError}
+            onGenerateQuotation={flow.generateCurrentQuotation}
+            quotationCount={flow.previousQuotations.length}
+            onViewHistory={flow.showQuotationHistory}
           />
         ) : (
           <ChooseBusinessView
-            brands={brands}
-            selectedBrandId={selectedBrandId}
-            onBrandChange={handleBrandChange}
-            onContinue={() => {
-              if (selectedBrand) setShowTopUp(true)
-            }}
+            brands={flow.brands}
+            selectedBrandId={flow.selectedBrandId}
+            onBrandChange={flow.changeBrand}
+            onContinue={flow.continueToTopUp}
           />
         )}
       </main>
+
+      <Toast message={flow.toastMessage} onDismiss={flow.dismissToast} />
     </div>
   )
 }
