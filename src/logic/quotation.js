@@ -1,4 +1,4 @@
-import { validateCreditAmount, calculateTotalCredits } from './credits'
+import { validateCreditAmount, calculateTotalCredits } from './credits.js'
 
 export function generateQuotation(brand, outlets, creditsByOutlet, generatedAt = new Date()) {
   if (!brand || outlets.length === 0) {
@@ -42,7 +42,6 @@ export function generateQuotation(brand, outlets, creditsByOutlet, generatedAt =
     company.totalCredits = (BigInt(company.totalCredits) + credits).toString()
   }
 
-  // TODO: Once RM rates are provided, add unit prices, outlet totals, company subtotals and the grand total.
   return {
     quotation: {
       reference: `QT-${generatedAt.getTime()}`,
