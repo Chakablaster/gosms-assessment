@@ -44,7 +44,7 @@ describe('quotation email delivery', () => {
     )
   })
 
-  it('emails a generated quotation once and shows success', async () => {
+  it('shows one success toast after emailing a generated quotation', async () => {
     sendQuotationEmail.mockResolvedValue({
       status: 'sent',
       recipient: 'client@example.com',
@@ -54,9 +54,11 @@ describe('quotation email delivery', () => {
     await chooseBrand()
     await generate()
 
-    expect(await screen.findByText('Email sent to the registered client address.'))
-      .toBeInTheDocument()
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Quotation generated and emailed successfully.'
+    )
 
+    expect(screen.queryByLabelText('Email delivery status')).not.toBeInTheDocument()
     expect(createQuotation).toHaveBeenCalledTimes(1)
     expect(sendQuotationEmail).toHaveBeenCalledTimes(1)
     expect(sendQuotationEmail).toHaveBeenCalledWith(
@@ -68,9 +70,10 @@ describe('quotation email delivery', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View' }))
 
     expect(sendQuotationEmail).toHaveBeenCalledTimes(1)
+    expect(screen.queryByLabelText('Email delivery status')).not.toBeInTheDocument()
   })
 
-  it('shows failure without reporting email success and permits retry', async () => {
+  it('shows a failure toast and retains the retry option', async () => {
     sendQuotationEmail
       .mockRejectedValueOnce(new Error('Email could not be sent. Please try again.'))
       .mockResolvedValueOnce({ status: 'sent', recipient: 'client@example.com' })
@@ -79,15 +82,50 @@ describe('quotation email delivery', () => {
     await chooseBrand()
     await generate()
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Email not sent.')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Quotation generated, but the email could not be sent.'
+    )
+
+    expect(screen.getByLabelText('Email delivery status')).toHaveTextContent('Email not sent.')
+    expect(screen.getByRole('button', { name: 'Retry Email' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry Email' }))
 
-    expect(await screen.findByText('Email sent to the registered client address.'))
-      .toBeInTheDocument()
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Quotation email sent successfully.'
+    )
 
     expect(sendQuotationEmail).toHaveBeenCalledTimes(2)
+    expect(createQuotation).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('button', { name: 'Retry Email' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Email delivery status')).not.toBeInTheDocument()
+  })
+
+  it('waits for email delivery before showing the final toast', async () => {
+    let resolveEmail
+
+    sendQuotationEmail.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveEmail = resolve
+    }))
+
+    render(<App />)
+    await chooseBrand()
+    await generate()
+
+    expect(screen.getByRole('heading', { name: 'SMS Credit Quotation' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Email delivery status')).toHaveTextContent(
+      'Sending quotation to client…'
+    )
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveEmail({ status: 'sent', recipient: 'client@example.com' })
+    })
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Quotation generated and emailed successfully.'
+    )
+    expect(screen.queryByLabelText('Email delivery status')).not.toBeInTheDocument()
   })
 
   it('does not initiate an email for an invalid draft', async () => {
@@ -109,5 +147,6 @@ describe('quotation email delivery', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('Quotation generation failed.')
     expect(sendQuotationEmail).not.toHaveBeenCalled()
+    expect(screen.queryByText('Quotation generated and emailed successfully.')).not.toBeInTheDocument()
   })
 })

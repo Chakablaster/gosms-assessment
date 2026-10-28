@@ -66,20 +66,15 @@ function QuotationView({ quotation, email, onRetryEmail, onBack, backLabel = 'Ba
         <p className="mt-1 text-3xl font-bold text-brand">{BigInt(quotation.totalCredits).toLocaleString('en-MY')}</p>
       </div>
 
-      {email && (
+      {email && ['sending', 'failed'].includes(email.status) && (
         <div
           aria-label="Email delivery status"
-          role={email.status === 'failed' ? 'alert' : undefined}
           className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-surface-muted px-4 py-3 text-sm"
         >
           <p className={email.status === 'failed' ? 'text-error' : 'text-text-secondary'}>
             {email.status === 'sending'
               ? 'Sending quotation to client…'
-              : email.status === 'sent'
-                ? 'Email sent to the registered client address.'
-                : email.status === 'failed'
-                  ? `Email not sent. ${email.error}`
-                  : 'Email not sent.'}
+              : `Email not sent. ${email.error}`}
           </p>
 
           {email.status === 'failed' && (

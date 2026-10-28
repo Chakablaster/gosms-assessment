@@ -68,7 +68,7 @@ function App() {
         )}
       </main>
 
-      <Toast message={flow.toastMessage} onDismiss={flow.dismissToast} />
+      <Toast message={flow.toastMessage} variant={flow.toastVariant} onDismiss={flow.dismissToast} />
     </div>
   )
 }

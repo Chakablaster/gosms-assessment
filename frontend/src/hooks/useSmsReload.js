@@ -15,7 +15,7 @@ function useSmsReload() {
   const [viewedRequestId, setViewedRequestId] = useState(null)
   const [quotationOrigin, setQuotationOrigin] = useState('top-up')
   const [quotationError, setQuotationError] = useState('')
-  const [toastMessage, setToastMessage] = useState('')
+  const [toast, setToast] = useState(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const pendingGeneration = useRef(false)
   const pendingEmails = useRef(new Set())
@@ -74,15 +74,32 @@ function useSmsReload() {
     setQuotationError('')
   }
 
-  function deliverQuotation(requestId, quotation) {
+  function deliverQuotation(requestId, quotation, isRetry = false) {
     if (pendingEmails.current.has(requestId) || workflow.requestsById[requestId]?.email?.status === 'sent') return
 
     pendingEmails.current.add(requestId)
+    setToast(null)
     dispatch({ type: 'EMAIL_SEND_STARTED', requestId })
 
     void sendQuotationEmail(quotation)
-      .then(() => dispatch({ type: 'EMAIL_SEND_SUCCEEDED', requestId }))
-      .catch((error) => dispatch({ type: 'EMAIL_SEND_FAILED', requestId, error: error.message }))
+      .then(() => {
+        dispatch({ type: 'EMAIL_SEND_SUCCEEDED', requestId })
+        setToast({
+          message: isRetry
+            ? 'Quotation email sent successfully.'
+            : 'Quotation generated and emailed successfully.',
+          variant: 'success',
+        })
+      })
+      .catch((error) => {
+        dispatch({ type: 'EMAIL_SEND_FAILED', requestId, error: error.message })
+        setToast({
+          message: isRetry
+            ? 'Quotation email could not be sent.'
+            : 'Quotation generated, but the email could not be sent.',
+          variant: 'error',
+        })
+      })
       .finally(() => pendingEmails.current.delete(requestId))
   }
 
@@ -105,6 +122,7 @@ function useSmsReload() {
     pendingGeneration.current = true
     setIsGenerating(true)
     setQuotationError('')
+    setToast(null)
 
     try {
       const quotation = await createQuotation(brandId, creditsByOutlet)
@@ -112,7 +130,6 @@ function useSmsReload() {
       dispatch({ type: 'GENERATION_SUCCEEDED', brandId, quotation })
       setViewedRequestId(requestId)
       setQuotationOrigin('top-up')
-      setToastMessage('Quotation generated successfully.')
       setScreen('quotation')
 
       deliverQuotation(requestId, quotation)
@@ -127,13 +144,13 @@ function useSmsReload() {
   function viewQuotationFromHistory(requestId) {
     setViewedRequestId(requestId)
     setQuotationOrigin('history')
-    setToastMessage('')
+    setToast(null)
     setScreen('quotation')
   }
 
   function retryViewedEmail() {
     if (viewedRequest?.email?.status !== 'failed') return
-    deliverQuotation(viewedRequest.id, viewedRequest.quotation)
+    deliverQuotation(viewedRequest.id, viewedRequest.quotation, true)
   }
 
   function backFromQuotation() {
@@ -146,7 +163,7 @@ function useSmsReload() {
     }
 
     setViewedRequestId(null)
-    setToastMessage('')
+    setToast(null)
     setScreen(quotationOrigin)
   }
 
@@ -170,7 +187,8 @@ function useSmsReload() {
     viewedEmail: viewedRequest?.email,
     quotationBackLabel: quotationOrigin === 'history' ? 'Back to History' : 'Back to SMS Top Up',
     quotationError,
-    toastMessage,
+    toastMessage: toast?.message ?? '',
+    toastVariant: toast?.variant ?? 'success',
     changeBrand,
     continueToTopUp,
     changeCredit,
@@ -185,7 +203,7 @@ function useSmsReload() {
     showQuotationHistory: () => {
       if (!pendingGeneration.current) setScreen('history')
     },
-    dismissToast: () => setToastMessage(''),
+    dismissToast: () => setToast(null),
   }
 }
 

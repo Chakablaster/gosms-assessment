@@ -85,7 +85,9 @@ describe('GoSMS quotation workflow', () => {
     expect(screen.getByText('Silvertree Binjai Sdn Bhd')).toBeInTheDocument()
     expect(screen.queryByText('Silvertree US Sdn Bhd')).not.toBeInTheDocument()
     expect(screen.getByText('900')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('Quotation generated successfully.')
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Quotation generated and emailed successfully.'
+    )
     expect(createQuotation).toHaveBeenCalledTimes(1)
   })
 
