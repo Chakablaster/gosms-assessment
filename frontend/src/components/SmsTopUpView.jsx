@@ -1,6 +1,6 @@
 import { ArrowLeft } from 'lucide-react'
 
-function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutlet, currentCreditsByOutlet, errorsByOutlet, onCreditChange, totalCredits, quotationError, onGenerateQuotation, quotationCount, onViewHistory }) {
+function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutlet, currentCreditsByOutlet, errorsByOutlet, onCreditChange, totalCredits, quotationError, onGenerateQuotation, quotationCount, onViewHistory, isGenerating = false }) {
   function handleCreditFocus(event) {
     if (event.currentTarget.value === '0') {
       event.currentTarget.select()
@@ -16,7 +16,8 @@ function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutl
         <button
           type="button"
           onClick={onChangeBrand}
-          className="inline-flex h-9 items-center gap-2 text-sm font-medium leading-none text-brand hover:underline"
+          disabled={isGenerating}
+          className="inline-flex h-9 items-center gap-2 text-sm font-medium leading-none text-brand hover:underline disabled:cursor-not-allowed disabled:opacity-50"
         >
           <ArrowLeft aria-hidden="true" className="size-4 shrink-0" />
           <span>Change Brand</span>
@@ -26,7 +27,8 @@ function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutl
           <button
             type="button"
             onClick={onViewHistory}
-            className="inline-flex h-9 items-center justify-center rounded-lg border border-border-strong bg-surface px-4 text-sm font-medium leading-none text-brand hover:bg-surface-muted"
+            disabled={isGenerating}
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-border-strong bg-surface px-4 text-sm font-medium leading-none text-brand hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50"
           >
             History
           </button>
@@ -85,9 +87,10 @@ function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutl
                           onFocus={handleCreditFocus}
                           onClick={handleCreditFocus}
                           onChange={(event) => onCreditChange(outlet.id, event.target.value)}
+                          disabled={isGenerating}
                           aria-invalid={Boolean(error)}
                           aria-describedby={error ? errorId : undefined}
-                          className={`w-full rounded-lg border px-3 py-2 text-right focus:outline-none focus:ring-2 ${
+                          className={`w-full rounded-lg border px-3 py-2 text-right focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50 ${
                             error
                               ? 'border-error focus:border-error focus:ring-error/20'
                               : 'border-border-strong focus:border-brand focus:ring-brand/20'
@@ -121,9 +124,10 @@ function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutl
             <button
               type="button"
               onClick={onGenerateQuotation}
-              className="rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-surface hover:bg-brand-hover"
+              disabled={isGenerating}
+              className="rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-surface hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Generate Quotation
+              {isGenerating ? 'Generating Quotation...' : 'Generate Quotation'}
             </button>
           </div>
         </>

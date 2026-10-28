@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { brands, companies, outlets, prototypeExample } from '../data/mockData'
+import { brands, companies, outlets, prototypeExample } from '../data/mockData.js'
 
 describe('GoSMS business data', () => {
   it('contains unique brand IDs', () => {

@@ -17,9 +17,20 @@ function App() {
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
-        {flow.screen === 'quotation' && flow.viewedQuotation ? (
+        {flow.businessStatus === 'loading' ? (
+          <p role="status" className="text-sm text-text-secondary">Loading businesses...</p>
+        ) : flow.businessStatus === 'error' ? (
+          <div role="alert" className="rounded-xl border border-border bg-surface p-5">
+            <p className="text-sm text-error">{flow.businessError}</p>
+            <button type="button" onClick={flow.retryLoadingBusinesses} className="mt-4 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-surface hover:bg-brand-hover">
+              Retry
+            </button>
+          </div>
+        ) : flow.screen === 'quotation' && flow.viewedQuotation ? (
           <QuotationView
             quotation={flow.viewedQuotation}
+            email={flow.viewedEmail}
+            onRetryEmail={flow.retryViewedEmail}
             backLabel={flow.quotationBackLabel}
             onBack={flow.backFromQuotation}
           />
@@ -43,6 +54,7 @@ function App() {
             totalCredits={flow.totalCredits}
             quotationError={flow.quotationError}
             onGenerateQuotation={flow.generateCurrentQuotation}
+            isGenerating={flow.isGenerating}
             quotationCount={flow.previousQuotations.length}
             onViewHistory={flow.showQuotationHistory}
           />
@@ -56,7 +68,7 @@ function App() {
         )}
       </main>
 
-      <Toast message={flow.toastMessage} onDismiss={flow.dismissToast} />
+      <Toast message={flow.toastMessage} variant={flow.toastVariant} onDismiss={flow.dismissToast} />
     </div>
   )
 }
