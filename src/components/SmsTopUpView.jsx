@@ -1,6 +1,6 @@
 import { ArrowLeft } from 'lucide-react'
 
-function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutlet, onCreditChange, onReset, totalCredits }) {
+function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutlet, errorsByOutlet, onCreditChange, onReset, totalCredits }) {
   return (
     <section
       aria-labelledby="top-up-heading"
@@ -54,48 +54,68 @@ function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutl
               </thead>
 
               <tbody className="divide-y divide-border">
-                {outlets.map((outlet, index) => (
-                  <tr key={outlet.id}>
-                    <td className="px-4 py-4 text-text-muted">
-                      {index + 1}
-                    </td>
+                {outlets.map((outlet, index) => {
+                  const error = errorsByOutlet[outlet.id]
+                  const errorId = `credits-${outlet.id}-error`
 
-                    <td className="px-4 py-4">
-                      <div className="font-medium">
-                        {outlet.name}
-                      </div>
+                  return (
+                    <tr key={outlet.id}>
+                      <td className="px-4 py-4 text-text-muted">
+                        {index + 1}
+                      </td>
 
-                      <div className="mt-1 text-xs text-text-muted">
-                        {outlet.outletCode}
-                      </div>
-                    </td>
+                      <td className="px-4 py-4">
+                        <div className="font-medium">
+                          {outlet.name}
+                        </div>
 
-                    <td className="px-4 py-4 text-text-secondary">
-                      {outlet.companyName}
-                    </td>
+                        <div className="mt-1 text-xs text-text-muted">
+                          {outlet.outletCode}
+                        </div>
+                      </td>
 
-                    <td className="px-4 py-4">
-                      <label
-                        className="sr-only"
-                        htmlFor={`credits-${outlet.id}`}
-                      >
-                        SMS credits for {outlet.name} ({outlet.outletCode})
-                      </label>
+                      <td className="px-4 py-4 text-text-secondary">
+                        {outlet.companyName}
+                      </td>
 
-                      <input
-                        id={`credits-${outlet.id}`}
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        value={creditsByOutlet[outlet.id] ?? '0'}
-                        onChange={(event) =>
-                          onCreditChange(outlet.id, event.target.value)
-                        }
-                        className="w-full rounded-lg border border-border-strong px-3 py-2 text-right focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
-                      />
-                    </td>
-                  </tr>
-                ))}
+                      <td className="px-4 py-4">
+                        <label
+                          className="sr-only"
+                          htmlFor={`credits-${outlet.id}`}
+                        >
+                          SMS credits for {outlet.name} ({outlet.outletCode})
+                        </label>
+
+                        <input
+                          id={`credits-${outlet.id}`}
+                          type="text"
+                          inputMode="numeric"
+                          value={creditsByOutlet[outlet.id] ?? '0'}
+                          onChange={(event) =>
+                            onCreditChange(outlet.id, event.target.value)
+                          }
+                          aria-invalid={Boolean(error)}
+                          aria-describedby={error ? errorId : undefined}
+                          className={`w-full rounded-lg border px-3 py-2 text-right focus:outline-none focus:ring-2 ${
+                            error
+                              ? 'border-error focus:border-error focus:ring-error/20'
+                              : 'border-border-strong focus:border-brand focus:ring-brand/20'
+                          }`}
+                        />
+
+                        {error && (
+                          <p
+                            id={errorId}
+                            role="alert"
+                            className="mt-1 text-xs text-error"
+                          >
+                            {error}
+                          </p>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -129,4 +149,3 @@ function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutl
 }
 
 export default SmsTopUpView
-
