@@ -94,6 +94,7 @@ function Dropdown({ id, label, options, value, onChange, placeholder = 'Select a
         id={controlId}
         type="button"
         aria-labelledby={labelId}
+        aria-describedby={`${controlId}-selection`}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-controls={isOpen ? listboxId : undefined}
@@ -102,7 +103,7 @@ function Dropdown({ id, label, options, value, onChange, placeholder = 'Select a
         onKeyDown={handleTriggerKeyDown}
         className="mt-2 flex w-full items-center justify-between gap-3 rounded-lg border border-border-strong bg-surface px-3 py-3 text-left text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20 disabled:cursor-not-allowed disabled:bg-surface-muted"
       >
-        <span className={selectedOption ? 'text-text-primary' : 'text-text-muted'}>
+        <span id={`${controlId}-selection`} className={selectedOption ? 'text-text-primary' : 'text-text-muted'}>
           {selectedOption?.label ?? placeholder}
         </span>
         <ChevronDown

@@ -29,6 +29,7 @@ describe('Dropdown', () => {
 
     const trigger = screen.getByRole('button', { name: 'Client Brand' })
     expect(trigger).toHaveTextContent('Select a brand')
+    expect(trigger).toHaveAccessibleDescription('Select a brand')
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
 
     fireEvent.click(trigger)
@@ -55,6 +56,7 @@ describe('Dropdown', () => {
 
     const trigger = screen.getByRole('button', { name: 'Client Brand' })
     expect(trigger).toHaveTextContent("Norman's Cafe")
+    expect(trigger).toHaveAccessibleDescription("Norman's Cafe")
 
     fireEvent.click(trigger)
     expect(screen.getByRole('option', { name: "Norman's Cafe" })).toHaveAttribute('aria-selected', 'true')
