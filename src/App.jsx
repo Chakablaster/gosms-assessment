@@ -2,6 +2,7 @@ import { useState } from 'react'
 import ChooseBusinessView from './components/ChooseBusinessView'
 import SmsTopUpView from './components/SmsTopUpView'
 import { brands, companies, outlets } from './data/mockData'
+import { validateCreditAmount, calculateTotalCredits } from './logic/credits'
 
 function App() {
   const [selectedBrandId, setSelectedBrandId] = useState('')
@@ -22,10 +23,16 @@ function App() {
         )?.name ?? 'Company unavailable',
     }))
 
-  const totalCredits = selectedOutlets.reduce(
-    (total, outlet) =>
-      total + Number(creditsByOutlet[outlet.id] ?? 0),
-    0
+  const errorsByOutlet = Object.fromEntries(
+    selectedOutlets.map((outlet) => [
+      outlet.id,
+      validateCreditAmount(creditsByOutlet[outlet.id] ?? '0'),
+    ])
+  )
+
+  const totalCredits = calculateTotalCredits(
+    selectedOutlets,
+    creditsByOutlet
   )
 
   function handleBrandChange(brandId) {
@@ -37,14 +44,6 @@ function App() {
   }
 
   function handleCreditChange(outletId, value) {
-    if (
-      value !== '' &&
-      (!/^\d+$/.test(value) ||
-        !Number.isSafeInteger(Number(value)))
-    ) {
-      return
-    }
-
     setCreditsByOutlet((previous) => ({
       ...previous,
       [outletId]: value,
@@ -68,6 +67,7 @@ function App() {
             onChangeBrand={() => setShowTopUp(false)}
             outlets={selectedOutlets}
             creditsByOutlet={creditsByOutlet}
+            errorsByOutlet={errorsByOutlet}
             onCreditChange={handleCreditChange}
             onReset={() => setCreditsByOutlet({})}
             totalCredits={totalCredits}

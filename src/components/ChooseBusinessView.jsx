@@ -1,3 +1,5 @@
+import Dropdown from './Dropdown'
+
 function ChooseBusinessView({ brands, selectedBrandId, onBrandChange, onContinue }) {
   return (
     <section
@@ -15,27 +17,16 @@ function ChooseBusinessView({ brands, selectedBrandId, onBrandChange, onContinue
         Select a client brand to continue with the SMS credit reload.
       </p>
 
-      <label
-        htmlFor="brand-select"
-        className="mt-8 block text-sm font-medium"
-      >
-        Client Brand
-      </label>
-
-      <select
-        id="brand-select"
-        value={selectedBrandId}
-        onChange={(event) => onBrandChange(event.target.value)}
-        className="mt-2 w-full rounded-lg border border-border-strong bg-surface px-3 py-3 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
-      >
-        <option value="">Select a brand</option>
-
-        {brands.map((brand) => (
-          <option key={brand.id} value={brand.id}>
-            {brand.name}
-          </option>
-        ))}
-      </select>
+      <div className="mt-8">
+        <Dropdown
+          id="brand-select"
+          label="Client Brand"
+          options={brands.map((brand) => ({ value: brand.id, label: brand.name }))}
+          value={selectedBrandId}
+          onChange={onBrandChange}
+          placeholder="Select a brand"
+        />
+      </div>
 
       <button
         type="button"
