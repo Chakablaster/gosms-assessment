@@ -1,12 +1,15 @@
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import App from '../App'
-import { getBusinesses, createQuotation } from '../services/gosmsApi'
+import { getBusinesses, getCreditBalances, createQuotation } from '../services/gosmsApi'
 import { createQuotationService } from '../../../backend/services/quotationService'
+import { createCreditAllocationService } from '../../../backend/services/creditAllocationService'
 import { brands, companies, outlets } from '../../../backend/data/mockData'
 
 vi.mock('../services/gosmsApi', () => ({
   getBusinesses: vi.fn(),
+  getCreditBalances: vi.fn(),
   createQuotation: vi.fn(),
 }))
 
@@ -37,14 +40,23 @@ function backToTopUp() {
 }
 
 describe('GoSMS quotation workflow', () => {
+  let quotationService
+  let allocationService
+
   beforeEach(() => {
     vi.clearAllMocks()
     getBusinesses.mockResolvedValue({ brands, companies, outlets })
-    const service = createQuotationService({ brands, companies, outlets })
 
-    createQuotation.mockImplementation(async (brandId, creditsByOutlet) =>
-      service.generate({ brandId, creditsByOutlet })
-    )
+    quotationService = createQuotationService({ brands, companies, outlets })
+    allocationService = createCreditAllocationService({ companies, outlets })
+
+    getCreditBalances.mockImplementation(async () => allocationService.getBalances())
+
+    createQuotation.mockImplementation(async (brandId, creditsByOutlet) => {
+      const quotation = quotationService.generate({ brandId, creditsByOutlet })
+      allocationService.allocate(quotation)
+      return quotation
+    })
   })
 
   it('blocks generation when no SMS credits are entered', async () => {
@@ -89,6 +101,12 @@ describe('GoSMS quotation workflow', () => {
       'Quotation generated and emailed successfully.'
     )
     expect(createQuotation).toHaveBeenCalledTimes(1)
+
+    backToTopUp()
+
+    expect(within(creditInput('Binjai Park', 'ST-BP-01').closest('tr')).getByText('300')).toBeInTheDocument()
+    expect(within(creditInput('Binjai Park', 'ST-BP-02').closest('tr')).getByText('200')).toBeInTheDocument()
+    expect(within(creditInput('Binjai Park', 'ST-BP-03').closest('tr')).getByText('400')).toBeInTheDocument()
   })
 
   it('returns to fresh editable inputs after generating a quotation', async () => {
@@ -155,6 +173,49 @@ describe('GoSMS quotation workflow', () => {
 
     expect(within(creditInput('Pavilion Kuala Lumpur', 'GG-PAV-01').closest('tr')).getByText('8')).toBeInTheDocument()
     expect(within(creditInput('Mid Valley Megamall', 'GG-MV-02').closest('tr')).getByText('4')).toBeInTheDocument()
+  })
+
+  it('displays existing backend credits even without local quotation history', async () => {
+    const existing = quotationService.generate({
+      brandId: 'silvertree',
+      creditsByOutlet: { 'st-001': '120' },
+    })
+
+    allocationService.allocate(existing)
+
+    render(<App />)
+    await chooseBrand('silvertree')
+
+    const row = creditInput('Binjai Park', 'ST-BP-01').closest('tr')
+
+    expect(within(row).getByText('120')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'History' })).not.toBeInTheDocument()
+    expect(creditInput('Binjai Park', 'ST-BP-01')).toHaveValue('0')
+  })
+
+  it('does not show stale credits when refreshing balances fails', async () => {
+    getCreditBalances
+      .mockImplementationOnce(async () => allocationService.getBalances())
+      .mockRejectedValueOnce(new Error('Connection failed.'))
+
+    render(<App />)
+    await chooseBrand('silvertree')
+
+    fireEvent.change(creditInput('Binjai Park', 'ST-BP-01'), { target: { value: '250' } })
+    await generate()
+
+    expect(screen.getByRole('heading', { name: 'SMS Credit Quotation' })).toBeInTheDocument()
+    expect(createQuotation).toHaveBeenCalledTimes(1)
+
+    backToTopUp()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Current credit balances could not be refreshed.'
+    )
+
+    const row = creditInput('Binjai Park', 'ST-BP-01').closest('tr')
+    expect(within(row).getByText('—')).toBeInTheDocument()
+    expect(creditInput('Binjai Park', 'ST-BP-01')).toHaveValue('0')
   })
 
   it('allows opening history without resetting an unfinished top up', async () => {

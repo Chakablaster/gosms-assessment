@@ -1,14 +1,17 @@
+
 import { useEffect, useReducer, useRef, useState } from 'react'
 import { getTopUpDetails } from '../logic/topUp'
-import { getBusinesses, createQuotation } from '../services/gosmsApi'
+import { getBusinesses, getCreditBalances, createQuotation } from '../services/gosmsApi'
 import { sendQuotationEmail } from '../services/quotationEmail'
-import { initialWorkflowState, workflowReducer, getActiveRequest, getBrandQuotations, getBrandQuotedCredits, getOutletCurrentCredits } from '../logic/quotationWorkflow'
+import { initialWorkflowState, workflowReducer, getActiveRequest, getBrandQuotations, getBrandQuotedCredits } from '../logic/quotationWorkflow'
 
 function useSmsReload() {
   const [businessData, setBusinessData] = useState({ brands: [], companies: [], outlets: [] })
   const [businessStatus, setBusinessStatus] = useState('loading')
   const [businessError, setBusinessError] = useState('')
   const [loadVersion, setLoadVersion] = useState(0)
+  const [creditBalances, setCreditBalances] = useState(null)
+  const [balanceError, setBalanceError] = useState('')
   const [selectedBrandId, setSelectedBrandId] = useState('')
   const [screen, setScreen] = useState('choose')
   const [workflow, dispatch] = useReducer(workflowReducer, initialWorkflowState)
@@ -23,16 +26,18 @@ function useSmsReload() {
   useEffect(() => {
     let active = true
 
-    getBusinesses()
-      .then((data) => {
+    Promise.all([getBusinesses(), getCreditBalances()])
+      .then(([data, balances]) => {
         if (!active) return
         setBusinessData(data)
+        setCreditBalances(balances)
         setBusinessError('')
+        setBalanceError('')
         setBusinessStatus('ready')
       })
       .catch((error) => {
         if (!active) return
-        setBusinessError(error instanceof Error ? error.message : 'Unable to load client data.')
+        setBusinessError(error instanceof Error ? error.message : 'Unable to load GoSMS data.')
         setBusinessStatus('error')
       })
 
@@ -50,10 +55,30 @@ function useSmsReload() {
   const previousQuotations = getBrandQuotations(workflow, selectedBrandId)
   const viewedRequest = workflow.requestsById[viewedRequestId]
 
+  const currentCreditsByOutlet = creditBalances
+    ? Object.fromEntries(
+        Object.entries(creditBalances.outletBalances).map(([outletId, credits]) => [
+          outletId,
+          BigInt(credits),
+        ])
+      )
+    : null
+
   function retryLoadingBusinesses() {
     setBusinessStatus('loading')
     setBusinessError('')
     setLoadVersion((previous) => previous + 1)
+  }
+
+  async function refreshCreditBalances() {
+    try {
+      const balances = await getCreditBalances()
+      setCreditBalances(balances)
+      setBalanceError('')
+    } catch {
+      setCreditBalances(null)
+      setBalanceError('Current credit balances could not be refreshed.')
+    }
   }
 
   function changeBrand(brandId) {
@@ -78,7 +103,7 @@ function useSmsReload() {
     if (pendingEmails.current.has(requestId) || workflow.requestsById[requestId]?.email?.status === 'sent') return
 
     pendingEmails.current.add(requestId)
-    setToast(null)
+    if (isRetry) setToast(null)
     dispatch({ type: 'EMAIL_SEND_STARTED', requestId })
 
     void sendQuotationEmail(quotation)
@@ -87,7 +112,7 @@ function useSmsReload() {
         setToast({
           message: isRetry
             ? 'Quotation email sent successfully.'
-            : 'Quotation generated and emailed successfully.',
+            : 'Quotation generated and emailed successfully. SMS credits have been allocated.',
           variant: 'success',
         })
       })
@@ -96,7 +121,7 @@ function useSmsReload() {
         setToast({
           message: isRetry
             ? 'Quotation email could not be sent.'
-            : 'Quotation generated, but the email could not be sent.',
+            : 'Quotation generated, but the email could not be sent. SMS credits were allocated.',
           variant: 'error',
         })
       })
@@ -131,7 +156,13 @@ function useSmsReload() {
       setViewedRequestId(requestId)
       setQuotationOrigin('top-up')
       setScreen('quotation')
+      setToast({
+        message: 'Quotation generated. SMS credits allocated successfully.',
+        variant: 'success',
+      })
 
+      setCreditBalances(null)
+      void refreshCreditBalances()
       deliverQuotation(requestId, quotation)
     } catch (error) {
       setQuotationError(error instanceof Error ? error.message : 'Quotation generation failed.')
@@ -180,7 +211,8 @@ function useSmsReload() {
     errorsByOutlet,
     totalCredits,
     isGenerating,
-    currentCreditsByOutlet: getOutletCurrentCredits(workflow, selectedBrandId),
+    currentCreditsByOutlet,
+    balanceError,
     quotedCredits: getBrandQuotedCredits(workflow, selectedBrandId),
     previousQuotations,
     viewedQuotation: viewedRequest?.quotation,

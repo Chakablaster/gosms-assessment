@@ -1,3 +1,4 @@
+
 import ChooseBusinessView from './components/ChooseBusinessView'
 import SmsTopUpView from './components/SmsTopUpView'
 import QuotationView from './components/QuotationView'
@@ -49,6 +50,7 @@ function App() {
             outlets={flow.selectedOutlets}
             creditsByOutlet={flow.creditsByOutlet}
             currentCreditsByOutlet={flow.currentCreditsByOutlet}
+            balanceError={flow.balanceError}
             errorsByOutlet={flow.errorsByOutlet}
             onCreditChange={flow.changeCredit}
             totalCredits={flow.totalCredits}

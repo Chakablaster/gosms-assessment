@@ -1,3 +1,4 @@
+
 async function requestJson(url, options, request) {
   let response
 
@@ -22,6 +23,13 @@ async function requestJson(url, options, request) {
   return data
 }
 
+function isCreditBalanceMap(value) {
+  return value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.values(value).every((credits) => typeof credits === 'string' && /^\d+$/.test(credits))
+}
+
 export async function getBusinesses(request = fetch) {
   const data = await requestJson('/api/businesses', { method: 'GET' }, request)
 
@@ -40,6 +48,22 @@ export async function getBusinesses(request = fetch) {
   }
 }
 
+export async function getCreditBalances(request = fetch) {
+  const data = await requestJson('/api/credits', { method: 'GET' }, request)
+
+  if (
+    !isCreditBalanceMap(data?.companyBalances) ||
+    !isCreditBalanceMap(data?.outletBalances)
+  ) {
+    throw new Error('Invalid credit balances received from the server.')
+  }
+
+  return {
+    companyBalances: data.companyBalances,
+    outletBalances: data.outletBalances,
+  }
+}
+
 export async function createQuotation(brandId, creditsByOutlet, request = fetch) {
   const data = await requestJson('/api/quotations', {
     method: 'POST',
@@ -52,6 +76,13 @@ export async function createQuotation(brandId, creditsByOutlet, request = fetch)
     !Array.isArray(data.quotation.companies)
   ) {
     throw new Error('Invalid quotation received from the server.')
+  }
+
+  if (
+    data?.allocation?.reference !== data.quotation.reference ||
+    data.allocation.alreadyAllocated !== false
+  ) {
+    throw new Error('Invalid credit allocation response from the server.')
   }
 
   return data.quotation

@@ -1,6 +1,7 @@
+
 import { ArrowLeft } from 'lucide-react'
 
-function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutlet, currentCreditsByOutlet, errorsByOutlet, onCreditChange, totalCredits, quotationError, onGenerateQuotation, quotationCount, onViewHistory, isGenerating = false }) {
+function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutlet, currentCreditsByOutlet, balanceError, errorsByOutlet, onCreditChange, totalCredits, quotationError, onGenerateQuotation, quotationCount, onViewHistory, isGenerating = false }) {
   function handleCreditFocus(event) {
     if (event.currentTarget.value === '0') {
       event.currentTarget.select()
@@ -42,6 +43,10 @@ function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutl
         <p className="mt-2 text-sm text-text-secondary">{selectedBrandName}</p>
       </div>
 
+      {balanceError && (
+        <p role="alert" className="mt-5 text-sm text-error">{balanceError}</p>
+      )}
+
       {outlets.length === 0 ? (
         <p className="py-10 text-sm text-text-secondary">
           No outlets are configured for this brand.
@@ -73,7 +78,9 @@ function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutl
                       </td>
                       <td className="px-4 py-4 text-text-secondary">{outlet.companyName}</td>
                       <td className="px-4 py-4 text-right font-medium tabular-nums">
-                        {(currentCreditsByOutlet[outlet.id] ?? 0n).toLocaleString('en-MY')}
+                        {currentCreditsByOutlet === null
+                          ? '—'
+                          : (currentCreditsByOutlet[outlet.id] ?? 0n).toLocaleString('en-MY')}
                       </td>
                       <td className="px-4 py-4">
                         <label className="sr-only" htmlFor={`credits-${outlet.id}`}>

@@ -1,7 +1,9 @@
+
 import { createServer } from 'node:http'
 import { existsSync } from 'node:fs'
 import nodemailer from 'nodemailer'
 import { brands, companies, outlets } from './data/mockData.js'
+import { createCreditAllocationService, CreditAllocationError } from './services/creditAllocationService.js'
 import { createEmailService, EmailError } from './services/emailService.js'
 import { createQuotationService, QuotationError } from './services/quotationService.js'
 
@@ -42,6 +44,7 @@ const transporter = configured
   : null
 
 const quotationService = createQuotationService({ brands, companies, outlets })
+const creditAllocationService = createCreditAllocationService({ companies, outlets })
 
 const emailService = createEmailService({
   brands,
@@ -86,11 +89,17 @@ createServer(async (req, res) => {
       return
     }
 
+    if (req.method === 'GET' && req.url === '/api/credits') {
+      respond(res, 200, creditAllocationService.getBalances())
+      return
+    }
+
     if (req.method === 'POST' && req.url === '/api/quotations') {
       const payload = await readJson(req)
       const quotation = quotationService.generate(payload)
+      const allocation = creditAllocationService.allocate(quotation)
 
-      respond(res, 201, { quotation })
+      respond(res, 201, { quotation, allocation })
       return
     }
 
@@ -108,10 +117,15 @@ createServer(async (req, res) => {
 
     respond(res, 404, { error: 'Not found.' })
   } catch (error) {
-    const expected = error instanceof QuotationError || error instanceof EmailError
+    const allocationFailure = error instanceof CreditAllocationError
+    const expected = error instanceof QuotationError ||
+      allocationFailure ||
+      error instanceof EmailError
 
     respond(res, expected ? error.status : 500, {
-      error: expected ? error.message : 'Server error.',
+      error: allocationFailure
+        ? `SMS credit allocation failed: ${error.message}`
+        : expected ? error.message : 'Server error.',
     })
   }
 }).listen(3001, '127.0.0.1', () => {
