@@ -1,10 +1,17 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import App from '../App'
-import { brands } from '../data/mockData'
+import { getBusinesses } from '../services/gosmsApi'
+import { brands, companies, outlets } from '../../../backend/data/mockData'
 
-function chooseBrand(brandId) {
+vi.mock('../services/gosmsApi', () => ({
+  getBusinesses: vi.fn(),
+  createQuotation: vi.fn(),
+}))
+
+async function chooseBrand(brandId) {
   const brand = brands.find((item) => item.id === brandId)
+  await screen.findByRole('button', { name: 'Client Brand' })
   fireEvent.click(screen.getByRole('button', { name: 'Client Brand' }))
   fireEvent.click(screen.getByRole('option', { name: brand.name }))
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
@@ -17,18 +24,24 @@ function creditInput(outletName, code) {
 }
 
 describe('GoSMS credit reload', () => {
-  it('starts on the business selection screen', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getBusinesses.mockResolvedValue({ brands, companies, outlets })
+  })
+
+  it('starts on the business selection screen', async () => {
     render(<App />)
 
-    expect(screen.getByRole('heading', { name: 'Choose Business' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Choose Business' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Client Brand' })).toHaveTextContent('Select a brand')
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     expect(screen.queryByRole('heading', { name: 'SMS Top Up' })).not.toBeInTheDocument()
+    expect(getBusinesses).toHaveBeenCalledOnce()
   })
 
-  it('shows all selected outlets with distinct codes and companies', () => {
+  it('shows all selected outlets with distinct codes and companies', async () => {
     render(<App />)
-    chooseBrand('silvertree')
+    await chooseBrand('silvertree')
 
     expect(screen.getAllByText('Binjai Park')).toHaveLength(3)
     expect(screen.getByText('Union Square')).toBeInTheDocument()
@@ -42,9 +55,9 @@ describe('GoSMS credit reload', () => {
     expect(screen.getByText('Top Up Credits')).toBeInTheDocument()
   })
 
-  it('calculates the prototype allocations as 900 credits', () => {
+  it('calculates the prototype allocations as 900 credits', async () => {
     render(<App />)
-    chooseBrand('silvertree')
+    await chooseBrand('silvertree')
 
     for (const [name, code, value] of [
       ['Binjai Park', 'ST-BP-01', '300'],
@@ -59,9 +72,9 @@ describe('GoSMS credit reload', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
-  it('displays inline errors for invalid inputs', () => {
+  it('displays inline errors for invalid inputs', async () => {
     render(<App />)
-    chooseBrand('silvertree')
+    await chooseBrand('silvertree')
     const input = creditInput('Binjai Park', 'ST-BP-01')
 
     for (const value of ['-1', '1.5', 'abc']) {
@@ -72,56 +85,83 @@ describe('GoSMS credit reload', () => {
     }
   })
 
-  it('excludes invalid inputs from the total until corrected', () => {
+  it('excludes invalid inputs from the total until corrected', async () => {
     render(<App />)
-    chooseBrand('silvertree')
+    await chooseBrand('silvertree')
+
     fireEvent.change(creditInput('Binjai Park', 'ST-BP-01'), { target: { value: '300' } })
     const second = creditInput('Binjai Park', 'ST-BP-02')
     fireEvent.change(second, { target: { value: 'bad' } })
+
     expect(screen.getByLabelText('Total SMS Credits')).toHaveTextContent('300')
     fireEvent.change(second, { target: { value: '200' } })
+
     expect(second).toHaveAttribute('aria-invalid', 'false')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Total SMS Credits')).toHaveTextContent('500')
   })
 
-  it('accepts an empty input as zero without an error', () => {
+  it('accepts an empty input as zero without an error', async () => {
     render(<App />)
-    chooseBrand('silvertree')
+    await chooseBrand('silvertree')
+
     const input = creditInput('Binjai Park', 'ST-BP-01')
     fireEvent.change(input, { target: { value: '250' } })
     fireEvent.change(input, { target: { value: '' } })
+
     expect(input).toHaveValue('')
     expect(input).toHaveAttribute('aria-invalid', 'false')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Total SMS Credits')).toHaveTextContent('0')
   })
 
-  it('shows a distinct error for credit amounts beyond the safe integer range', () => {
+  it('shows a distinct error for credit amounts beyond the safe integer range', async () => {
     render(<App />)
-    chooseBrand('silvertree')
-    fireEvent.change(creditInput('Binjai Park', 'ST-BP-01'), { target: { value: '9007199254740992' } })
+    await chooseBrand('silvertree')
+
+    fireEvent.change(creditInput('Binjai Park', 'ST-BP-01'), {
+      target: { value: '9007199254740992' },
+    })
+
     expect(screen.getByRole('alert')).toHaveTextContent('The credit amount is too large.')
     expect(screen.getByLabelText('Total SMS Credits')).toHaveTextContent('0')
   })
 
-  it('does not offer an action to reset credit inputs', () => {
+  it('does not offer an action to reset credit inputs', async () => {
     render(<App />)
-    chooseBrand('silvertree')
+    await chooseBrand('silvertree')
     expect(screen.queryByRole('button', { name: 'Reset Credits' })).not.toBeInTheDocument()
   })
 
-  it('retains unfinished credits independently when changing brands', () => {
+  it('retains unfinished credits independently when changing brands', async () => {
     render(<App />)
-    chooseBrand('silvertree')
+    await chooseBrand('silvertree')
+
     fireEvent.change(creditInput('Binjai Park', 'ST-BP-01'), { target: { value: '300' } })
     fireEvent.click(screen.getByRole('button', { name: 'Change Brand' }))
-    chooseBrand('gordon-grill')
+    await chooseBrand('gordon-grill')
+
     expect(screen.getByText('Pavilion Kuala Lumpur')).toBeInTheDocument()
     expect(screen.getByLabelText('Total SMS Credits')).toHaveTextContent('0')
+
     fireEvent.click(screen.getByRole('button', { name: 'Change Brand' }))
-    chooseBrand('silvertree')
+    await chooseBrand('silvertree')
+
     expect(creditInput('Binjai Park', 'ST-BP-01')).toHaveValue('300')
     expect(screen.getByLabelText('Total SMS Credits')).toHaveTextContent('300')
+  })
+
+  it('shows a retry option when business data cannot be loaded', async () => {
+    getBusinesses.mockRejectedValueOnce(new Error('Unable to connect to the GoSMS server.'))
+
+    render(<App />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to connect to the GoSMS server.')
+    expect(screen.queryByRole('heading', { name: 'Choose Business' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByRole('heading', { name: 'Choose Business' })).toBeInTheDocument()
+    expect(getBusinesses).toHaveBeenCalledTimes(2)
   })
 })

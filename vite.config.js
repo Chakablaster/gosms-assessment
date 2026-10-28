@@ -6,14 +6,16 @@ import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
 export default defineConfig({
+  root: 'frontend',
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
-      '/api/quotations/email': 'http://127.0.0.1:3001',
+      '/api': 'http://127.0.0.1:3001',
     },
   },
   test: {
+    root: '.',
     environment: 'jsdom',
-    setupFiles: ['./src/tests/setup.js'],
+    setupFiles: ['./frontend/src/tests/setup.js'],
   },
 })

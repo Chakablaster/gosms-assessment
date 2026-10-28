@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createEmailService } from '../../server/emailService'
+import { createEmailService } from '../../../backend/services/emailService.js'
 import { sendQuotationEmail } from '../services/quotationEmail'
-import { generateQuotation } from '../logic/quotation'
+import { generateQuotation } from '../../../backend/logic/quotation.js'
 
 const brands = [{ id: 'silvertree', name: 'Silvertree Restaurants' }]
 const companies = [

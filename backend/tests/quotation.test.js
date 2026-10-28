@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateQuotation } from '../logic/quotation'
+import { generateQuotation } from '../logic/quotation.js'
 
 const brand = { id: 'silvertree', name: 'Silvertree Restaurants' }
 const outlets = [
