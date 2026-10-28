@@ -1,11 +1,13 @@
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import App from '../App'
-import { getBusinesses } from '../services/gosmsApi'
+import { getBusinesses, getCreditBalances } from '../services/gosmsApi'
 import { brands, companies, outlets } from '../../../backend/data/mockData'
 
 vi.mock('../services/gosmsApi', () => ({
   getBusinesses: vi.fn(),
+  getCreditBalances: vi.fn(),
   createQuotation: vi.fn(),
 }))
 
@@ -27,6 +29,7 @@ describe('GoSMS credit reload', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getBusinesses.mockResolvedValue({ brands, companies, outlets })
+    getCreditBalances.mockResolvedValue({ companyBalances: {}, outletBalances: {} })
   })
 
   it('starts on the business selection screen', async () => {
@@ -37,6 +40,7 @@ describe('GoSMS credit reload', () => {
     expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
     expect(screen.queryByRole('heading', { name: 'SMS Top Up' })).not.toBeInTheDocument()
     expect(getBusinesses).toHaveBeenCalledOnce()
+    expect(getCreditBalances).toHaveBeenCalledOnce()
   })
 
   it('shows all selected outlets with distinct codes and companies', async () => {
@@ -53,6 +57,20 @@ describe('GoSMS credit reload', () => {
     expect(screen.getByText('Silvertree US Sdn Bhd')).toBeInTheDocument()
     expect(screen.getByText('Current Credits')).toBeInTheDocument()
     expect(screen.getByText('Top Up Credits')).toBeInTheDocument()
+  })
+
+  it('displays backend balances without needing quotation history', async () => {
+    getCreditBalances.mockResolvedValueOnce({
+      companyBalances: { 'silvertree-oris': '50' },
+      outletBalances: { 'st-001': '50' },
+    })
+
+    render(<App />)
+    await chooseBrand('silvertree')
+
+    const row = creditInput('Binjai Park', 'ST-BP-01').closest('tr')
+    expect(within(row).getByText('50')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'History' })).not.toBeInTheDocument()
   })
 
   it('calculates the prototype allocations as 900 credits', async () => {
@@ -163,5 +181,19 @@ describe('GoSMS credit reload', () => {
 
     expect(await screen.findByRole('heading', { name: 'Choose Business' })).toBeInTheDocument()
     expect(getBusinesses).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not show zero balances when the backend balance request fails', async () => {
+    getCreditBalances.mockRejectedValueOnce(new Error('Unable to load credit balances.'))
+
+    render(<App />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load credit balances.')
+    expect(screen.queryByRole('heading', { name: 'Choose Business' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByRole('heading', { name: 'Choose Business' })).toBeInTheDocument()
+    expect(getCreditBalances).toHaveBeenCalledTimes(2)
   })
 })

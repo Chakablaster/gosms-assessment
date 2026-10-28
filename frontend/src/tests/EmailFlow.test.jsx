@@ -1,13 +1,15 @@
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import App from '../App'
-import { getBusinesses, createQuotation } from '../services/gosmsApi'
+import { getBusinesses, getCreditBalances, createQuotation } from '../services/gosmsApi'
 import { sendQuotationEmail } from '../services/quotationEmail'
 import { createQuotationService } from '../../../backend/services/quotationService'
 import { brands, companies, outlets } from '../../../backend/data/mockData'
 
 vi.mock('../services/gosmsApi', () => ({
   getBusinesses: vi.fn(),
+  getCreditBalances: vi.fn(),
   createQuotation: vi.fn(),
 }))
 
@@ -37,6 +39,8 @@ describe('quotation email delivery', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getBusinesses.mockResolvedValue({ brands, companies, outlets })
+    getCreditBalances.mockResolvedValue({ companyBalances: {}, outletBalances: {} })
+
     const service = createQuotationService({ brands, companies, outlets })
 
     createQuotation.mockImplementation(async (brandId, creditsByOutlet) =>
@@ -116,7 +120,7 @@ describe('quotation email delivery', () => {
     expect(screen.getByLabelText('Email delivery status')).toHaveTextContent(
       'Sending quotation to client…'
     )
-    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByText('Quotation generated and emailed successfully.')).not.toBeInTheDocument()
 
     await act(async () => {
       resolveEmail({ status: 'sent', recipient: 'client@example.com' })
