@@ -1,4 +1,3 @@
-
 import ChooseBusinessView from './components/ChooseBusinessView'
 import SmsTopUpView from './components/SmsTopUpView'
 import QuotationView from './components/QuotationView'
@@ -44,6 +43,9 @@ function App() {
             brandName={flow.selectedBrandName}
             requests={flow.previousQuotations}
             quotedCredits={flow.quotedCredits}
+            status={flow.historyStatus}
+            error={flow.historyError}
+            onRetry={flow.retryQuotationHistory}
             onBack={flow.showTopUp}
             onView={flow.viewQuotationFromHistory}
           />
@@ -62,7 +64,7 @@ function App() {
             onGenerateQuotation={flow.generateCurrentQuotation}
             isGenerating={flow.isGenerating}
             isRetryPending={flow.isRetryPending}
-            quotationCount={flow.previousQuotations.length}
+            quotationCount={flow.quotationCount}
             onViewHistory={flow.showQuotationHistory}
           />
         ) : (

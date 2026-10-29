@@ -1,13 +1,25 @@
+import { Redis } from '@upstash/redis'
 import nodemailer from 'nodemailer'
 import { brands, companies, outlets } from '../backend/data/mockData.js'
 import { createQuotationService, QuotationError } from '../backend/services/quotationService.js'
 import { createCreditAllocationService, CreditAllocationError } from '../backend/services/creditAllocationService.js'
-import { createReloadService, ReloadError } from '../backend/services/reloadService.js'
+import { ReloadError } from '../backend/services/reloadService.js'
+import { createPersistentReloadService } from '../backend/services/persistentReloadService.js'
 import { createEmailService, EmailError } from '../backend/services/emailService.js'
 
-const quotationService = createQuotationService({ brands, companies, outlets })
-const creditAllocationService = createCreditAllocationService({ companies, outlets })
-const reloadService = createReloadService({ quotationService, creditAllocationService })
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_KV_REST_API_URL,
+  token: process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN,
+  automaticDeserialization: false,
+})
+
+const reloadService = createPersistentReloadService({
+  redis,
+  quotationService: createQuotationService({ brands, companies, outlets }),
+  validateAllocation: (quotation) => createCreditAllocationService({ companies, outlets }).allocate(quotation),
+  companies,
+  outlets,
+})
 
 const smtpPort = Number(process.env.SMTP_PORT || '587')
 
@@ -91,21 +103,39 @@ export default async function handler(request, response) {
     }
 
     if (request.method === 'GET' && resource === 'credits') {
-      respond(response, 200, creditAllocationService.getBalances())
+      const [balances, historyCounts] = await Promise.all([
+        reloadService.getBalances(),
+        Promise.all(brands.map((brand) => reloadService.getHistoryCount(brand.id))),
+      ])
+
+      respond(response, 200, {
+        ...balances,
+        historyCountByBrand: Object.fromEntries(
+          brands.map((brand, index) => [brand.id, historyCounts[index]])
+        ),
+      })
+      return
+    }
+
+    if (request.method === 'GET' && resource === 'history') {
+      const brandId = request.query?.brandId
+
+      if (typeof brandId !== 'string' || !brands.some((brand) => brand.id === brandId)) {
+        throw new QuotationError('Client not found.', 404)
+      }
+
+      respond(response, 200, { requests: await reloadService.getHistory(brandId) })
       return
     }
 
     if (request.method === 'POST' && resource === 'quotations') {
-      const payload = readBody(request)
-      const result = reloadService.processReload(payload)
-
+      const result = await reloadService.processReload(readBody(request))
       respond(response, result.allocation.alreadyAllocated ? 200 : 201, result)
       return
     }
 
     if (request.method === 'POST' && resource === 'email') {
-      const payload = readBody(request)
-      const result = await emailService.sendQuotation(payload.quotation)
+      const result = await emailService.sendQuotation(readBody(request).quotation)
 
       respond(response, 200, {
         status: 'sent',
