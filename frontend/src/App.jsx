@@ -23,7 +23,11 @@ function App() {
         ) : flow.businessStatus === 'error' ? (
           <div role="alert" className="rounded-xl border border-border bg-surface p-5">
             <p className="text-sm text-error">{flow.businessError}</p>
-            <button type="button" onClick={flow.retryLoadingBusinesses} className="mt-4 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-surface hover:bg-brand-hover">
+            <button
+              type="button"
+              onClick={flow.retryLoadingBusinesses}
+              className="mt-4 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-surface hover:bg-brand-hover"
+            >
               Retry
             </button>
           </div>
@@ -57,6 +61,7 @@ function App() {
             quotationError={flow.quotationError}
             onGenerateQuotation={flow.generateCurrentQuotation}
             isGenerating={flow.isGenerating}
+            isRetryPending={flow.isRetryPending}
             quotationCount={flow.previousQuotations.length}
             onViewHistory={flow.showQuotationHistory}
           />

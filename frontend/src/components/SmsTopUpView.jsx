@@ -1,7 +1,7 @@
 
 import { ArrowLeft } from 'lucide-react'
 
-function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutlet, currentCreditsByOutlet, balanceError, errorsByOutlet, onCreditChange, totalCredits, quotationError, onGenerateQuotation, quotationCount, onViewHistory, isGenerating = false }) {
+function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutlet, currentCreditsByOutlet, balanceError, errorsByOutlet, onCreditChange, totalCredits, quotationError, onGenerateQuotation, quotationCount, onViewHistory, isGenerating = false, isRetryPending = false }) {
   function handleCreditFocus(event) {
     if (event.currentTarget.value === '0') {
       event.currentTarget.select()
@@ -17,7 +17,7 @@ function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutl
         <button
           type="button"
           onClick={onChangeBrand}
-          disabled={isGenerating}
+          disabled={isGenerating || isRetryPending}
           className="inline-flex h-9 items-center gap-2 text-sm font-medium leading-none text-brand hover:underline disabled:cursor-not-allowed disabled:opacity-50"
         >
           <ArrowLeft aria-hidden="true" className="size-4 shrink-0" />
@@ -28,7 +28,7 @@ function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutl
           <button
             type="button"
             onClick={onViewHistory}
-            disabled={isGenerating}
+            disabled={isGenerating || isRetryPending}
             className="inline-flex h-9 items-center justify-center rounded-lg border border-border-strong bg-surface px-4 text-sm font-medium leading-none text-brand hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50"
           >
             History
@@ -94,7 +94,7 @@ function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutl
                           onFocus={handleCreditFocus}
                           onClick={handleCreditFocus}
                           onChange={(event) => onCreditChange(outlet.id, event.target.value)}
-                          disabled={isGenerating}
+                          disabled={isGenerating || isRetryPending}
                           aria-invalid={Boolean(error)}
                           aria-describedby={error ? errorId : undefined}
                           className={`w-full rounded-lg border px-3 py-2 text-right focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:opacity-50 ${
@@ -127,6 +127,12 @@ function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutl
             <p role="alert" className="mt-4 text-sm text-error">{quotationError}</p>
           )}
 
+          {isRetryPending && !isGenerating && (
+            <p className="mt-3 text-sm text-text-secondary">
+              The previous request could not be confirmed. Retry the same top up to recover its result without allocating credits twice.
+            </p>
+          )}
+
           <div className="mt-6 flex justify-end">
             <button
               type="button"
@@ -134,7 +140,9 @@ function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutl
               disabled={isGenerating}
               className="rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-surface hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isGenerating ? 'Generating Quotation...' : 'Generate Quotation'}
+              {isGenerating
+                ? 'Generating Quotation...'
+                : isRetryPending ? 'Retry Quotation' : 'Generate Quotation'}
             </button>
           </div>
         </>

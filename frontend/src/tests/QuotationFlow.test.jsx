@@ -260,21 +260,25 @@ describe('GoSMS quotation workflow', () => {
     expect(creditInput('Pavilion Kuala Lumpur', 'GG-PAV-01')).toHaveValue('50')
   })
 
-  it('keeps the draft editable when the backend rejects generation', async () => {
-    createQuotation.mockRejectedValueOnce(new Error('GoSMS server unavailable.'))
+  it('keeps the draft editable after a known backend rejection', async () => {
+    createQuotation.mockRejectedValueOnce(
+      Object.assign(new Error('Quotation validation failed.'), { status: 422 })
+    )
 
     render(<App />)
     await chooseBrand('silvertree')
     fireEvent.change(creditInput('Binjai Park', 'ST-BP-01'), { target: { value: '250' } })
     await generate()
 
-    expect(screen.getByRole('alert')).toHaveTextContent('GoSMS server unavailable.')
+    expect(screen.getByRole('alert')).toHaveTextContent('Quotation validation failed.')
     expect(screen.getByRole('heading', { name: 'SMS Top Up' })).toBeInTheDocument()
     expect(creditInput('Binjai Park', 'ST-BP-01')).toHaveValue('250')
+    expect(creditInput('Binjai Park', 'ST-BP-01')).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Generate Quotation' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: 'History' })).not.toBeInTheDocument()
   })
 
-  it('prevents duplicate generation requests while the backend is processing', async () => {
+  it('prevents duplicate requests while processing and preserves an uncertain operation', async () => {
     let rejectRequest
 
     createQuotation.mockImplementationOnce(() => new Promise((resolve, reject) => {
@@ -294,10 +298,13 @@ describe('GoSMS quotation workflow', () => {
     expect(createQuotation).toHaveBeenCalledTimes(1)
 
     await act(async () => {
-      rejectRequest(new Error('Request failed.'))
+      rejectRequest(new Error('Network connection interrupted.'))
     })
 
-    expect(screen.getByRole('button', { name: 'Generate Quotation' })).toBeEnabled()
-    expect(screen.getByRole('alert')).toHaveTextContent('Request failed.')
+    expect(screen.getByRole('button', { name: 'Retry Quotation' })).toBeEnabled()
+    expect(creditInput('Binjai Park', 'ST-BP-01')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Change Brand' })).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent('Network connection interrupted.')
+    expect(createQuotation).toHaveBeenCalledTimes(1)
   })
 })
