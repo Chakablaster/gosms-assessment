@@ -1,13 +1,122 @@
+
+import { Redis } from '@upstash/redis'
 import nodemailer from 'nodemailer'
 import { brands, companies, outlets } from '../backend/data/mockData.js'
 import { createQuotationService, QuotationError } from '../backend/services/quotationService.js'
 import { createCreditAllocationService, CreditAllocationError } from '../backend/services/creditAllocationService.js'
-import { createReloadService, ReloadError } from '../backend/services/reloadService.js'
+import { ReloadError } from '../backend/services/reloadService.js'
 import { createEmailService, EmailError } from '../backend/services/emailService.js'
 
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_KV_REST_API_URL,
+  token: process.env.UPSTASH_REDIS_REST_KV_REST_API_TOKEN,
+  automaticDeserialization: false,
+})
+
 const quotationService = createQuotationService({ brands, companies, outlets })
-const creditAllocationService = createCreditAllocationService({ companies, outlets })
-const reloadService = createReloadService({ quotationService, creditAllocationService })
+const BALANCES_KEY = 'gosms:v1:outlet-balances'
+
+const ALLOCATE_SCRIPT = `
+local existing = redis.call('GET', KEYS[1])
+if existing then
+  return {0, existing}
+end
+
+for i = 2, #ARGV, 2 do
+  local current = tonumber(redis.call('HGET', KEYS[2], ARGV[i]) or '0')
+  local amount = tonumber(ARGV[i + 1])
+  if not current or not amount or amount < 1 or current + amount > 9007199254740991 then
+    return {-1, 'The resulting credit balance is too large.'}
+  end
+end
+
+for i = 2, #ARGV, 2 do
+  redis.call('HINCRBY', KEYS[2], ARGV[i], ARGV[i + 1])
+end
+
+redis.call('SET', KEYS[1], ARGV[1])
+return {1, ARGV[1]}
+`
+
+function getSignature(brandId, creditsByOutlet) {
+  const sortedCredits = creditsByOutlet && typeof creditsByOutlet === 'object' && !Array.isArray(creditsByOutlet)
+    ? Object.entries(creditsByOutlet).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+    : creditsByOutlet
+
+  return JSON.stringify({ brandId, creditsByOutlet: sortedCredits })
+}
+
+async function getBalances() {
+  const saved = await redis.hgetall(BALANCES_KEY) ?? {}
+  const outletBalances = {}
+  const companyBalances = Object.fromEntries(companies.map((company) => [company.id, '0']))
+
+  for (const outlet of outlets) {
+    const credits = BigInt(saved[outlet.id] ?? '0')
+    outletBalances[outlet.id] = credits.toString()
+    companyBalances[outlet.companyId] = (
+      BigInt(companyBalances[outlet.companyId]) + credits
+    ).toString()
+  }
+
+  return { companyBalances, outletBalances }
+}
+
+async function processReload({ operationId, brandId, creditsByOutlet } = {}) {
+  if (typeof operationId !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(operationId)) {
+    throw new ReloadError('Invalid top up operation identifier.')
+  }
+
+  const signature = getSignature(brandId, creditsByOutlet)
+  const operationKey = `gosms:v1:operation:${operationId}`
+  const existing = await redis.get(operationKey)
+
+  if (existing !== null) {
+    const record = JSON.parse(existing)
+
+    if (record.signature !== signature) {
+      throw new ReloadError('This top up operation has already been processed with different details.', 409)
+    }
+
+    return {
+      quotation: record.quotation,
+      allocation: {
+        reference: record.quotation.reference,
+        alreadyAllocated: true,
+      },
+    }
+  }
+
+  const quotation = quotationService.generate({ brandId, creditsByOutlet })
+  createCreditAllocationService({ companies, outlets }).allocate(quotation)
+
+  const allocations = quotation.companies.flatMap((company) => company.outlets)
+  const record = JSON.stringify({ signature, quotation })
+
+  const result = await redis.eval(
+    ALLOCATE_SCRIPT,
+    [operationKey, BALANCES_KEY],
+    [record, ...allocations.flatMap((item) => [item.outletId, item.credits])]
+  )
+
+  if (Number(result[0]) === -1) {
+    throw new ReloadError(String(result[1]))
+  }
+
+  const saved = JSON.parse(result[1])
+
+  if (saved.signature !== signature) {
+    throw new ReloadError('This top up operation has already been processed with different details.', 409)
+  }
+
+  return {
+    quotation: saved.quotation,
+    allocation: {
+      reference: saved.quotation.reference,
+      alreadyAllocated: Number(result[0]) === 0,
+    },
+  }
+}
 
 const smtpPort = Number(process.env.SMTP_PORT || '587')
 
@@ -91,21 +200,18 @@ export default async function handler(request, response) {
     }
 
     if (request.method === 'GET' && resource === 'credits') {
-      respond(response, 200, creditAllocationService.getBalances())
+      respond(response, 200, await getBalances())
       return
     }
 
     if (request.method === 'POST' && resource === 'quotations') {
-      const payload = readBody(request)
-      const result = reloadService.processReload(payload)
-
+      const result = await processReload(readBody(request))
       respond(response, result.allocation.alreadyAllocated ? 200 : 201, result)
       return
     }
 
     if (request.method === 'POST' && resource === 'email') {
-      const payload = readBody(request)
-      const result = await emailService.sendQuotation(payload.quotation)
+      const result = await emailService.sendQuotation(readBody(request).quotation)
 
       respond(response, 200, {
         status: 'sent',
