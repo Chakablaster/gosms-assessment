@@ -1,7 +1,21 @@
-
 import { ArrowLeft } from 'lucide-react'
 
-function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutlet, currentCreditsByOutlet, balanceError, errorsByOutlet, onCreditChange, totalCredits, quotationError, onGenerateQuotation, quotationCount, onViewHistory, isGenerating = false, isRetryPending = false }) {
+function SmsTopUpView({
+  selectedBrandName,
+  onChangeBrand,
+  outlets,
+  creditsByOutlet,
+  currentCreditsByOutlet,
+  balanceError,
+  errorsByOutlet,
+  onCreditChange,
+  totalCredits,
+  quotationError,
+  onGenerateQuotation,
+  onViewHistory,
+  isGenerating = false,
+  isRetryPending = false,
+}) {
   function handleCreditFocus(event) {
     if (event.currentTarget.value === '0') {
       event.currentTarget.select()
@@ -24,16 +38,14 @@ function SmsTopUpView({ selectedBrandName, onChangeBrand, outlets, creditsByOutl
           <span>Change Brand</span>
         </button>
 
-        {quotationCount > 0 && (
-          <button
-            type="button"
-            onClick={onViewHistory}
-            disabled={isGenerating || isRetryPending}
-            className="inline-flex h-9 items-center justify-center rounded-lg border border-border-strong bg-surface px-4 text-sm font-medium leading-none text-brand hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            History
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={onViewHistory}
+          disabled={isGenerating || isRetryPending}
+          className="inline-flex h-9 items-center justify-center rounded-lg border border-border-strong bg-surface px-4 text-sm font-medium leading-none text-brand hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          History
+        </button>
       </div>
 
       <div className="mt-5 border-b border-border pb-6">
