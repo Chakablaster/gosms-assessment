@@ -6,6 +6,7 @@ import { brands, companies, outlets } from './data/mockData.js'
 import { createCreditAllocationService, CreditAllocationError } from './services/creditAllocationService.js'
 import { createEmailService, EmailError } from './services/emailService.js'
 import { createQuotationService, QuotationError } from './services/quotationService.js'
+import { createReloadService, ReloadError } from './services/reloadService.js'
 
 if (existsSync('.env')) process.loadEnvFile('.env')
 
@@ -45,6 +46,7 @@ const transporter = configured
 
 const quotationService = createQuotationService({ brands, companies, outlets })
 const creditAllocationService = createCreditAllocationService({ companies, outlets })
+const reloadService = createReloadService({ quotationService, creditAllocationService })
 
 const emailService = createEmailService({
   brands,
@@ -96,10 +98,9 @@ createServer(async (req, res) => {
 
     if (req.method === 'POST' && req.url === '/api/quotations') {
       const payload = await readJson(req)
-      const quotation = quotationService.generate(payload)
-      const allocation = creditAllocationService.allocate(quotation)
+      const result = reloadService.processReload(payload)
 
-      respond(res, 201, { quotation, allocation })
+      respond(res, result.allocation.alreadyAllocated ? 200 : 201, result)
       return
     }
 
@@ -120,6 +121,7 @@ createServer(async (req, res) => {
     const allocationFailure = error instanceof CreditAllocationError
     const expected = error instanceof QuotationError ||
       allocationFailure ||
+      error instanceof ReloadError ||
       error instanceof EmailError
 
     respond(res, expected ? error.status : 500, {

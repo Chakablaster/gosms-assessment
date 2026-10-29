@@ -5,6 +5,12 @@ import { getBusinesses, getCreditBalances, createQuotation } from '../services/g
 import { sendQuotationEmail } from '../services/quotationEmail'
 import { initialWorkflowState, workflowReducer, getActiveRequest, getBrandQuotations, getBrandQuotedCredits } from '../logic/quotationWorkflow'
 
+function createOperationId() {
+  const bytes = new Uint8Array(16)
+  globalThis.crypto.getRandomValues(bytes)
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
 function useSmsReload() {
   const [businessData, setBusinessData] = useState({ brands: [], companies: [], outlets: [] })
   const [businessStatus, setBusinessStatus] = useState('loading')
@@ -20,8 +26,11 @@ function useSmsReload() {
   const [quotationError, setQuotationError] = useState('')
   const [toast, setToast] = useState(null)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [retryPendingRequestId, setRetryPendingRequestId] = useState(null)
+
   const pendingGeneration = useRef(false)
   const pendingEmails = useRef(new Set())
+  const pendingOperations = useRef(new Map())
 
   useEffect(() => {
     let active = true
@@ -49,11 +58,14 @@ function useSmsReload() {
   const { brands, companies, outlets } = businessData
   const currentRequest = getActiveRequest(workflow, selectedBrandId)
   const creditsByOutlet = currentRequest?.creditsByOutlet ?? {}
+
   const { selectedBrand, selectedOutlets, errorsByOutlet, totalCredits } = getTopUpDetails(
     selectedBrandId, creditsByOutlet, brands, companies, outlets
   )
+
   const previousQuotations = getBrandQuotations(workflow, selectedBrandId)
   const viewedRequest = workflow.requestsById[viewedRequestId]
+  const isRetryPending = Boolean(currentRequest && currentRequest.id === retryPendingRequestId)
 
   const currentCreditsByOutlet = creditBalances
     ? Object.fromEntries(
@@ -82,7 +94,7 @@ function useSmsReload() {
   }
 
   function changeBrand(brandId) {
-    if (pendingGeneration.current) return
+    if (pendingGeneration.current || isRetryPending) return
     setSelectedBrandId(brandId)
     setQuotationError('')
   }
@@ -94,7 +106,7 @@ function useSmsReload() {
   }
 
   function changeCredit(outletId, value) {
-    if (pendingGeneration.current) return
+    if (pendingGeneration.current || isRetryPending) return
     dispatch({ type: 'SET_CREDIT', brandId: selectedBrandId, outletId, value })
     setQuotationError('')
   }
@@ -103,7 +115,9 @@ function useSmsReload() {
     if (pendingEmails.current.has(requestId) || workflow.requestsById[requestId]?.email?.status === 'sent') return
 
     pendingEmails.current.add(requestId)
+
     if (isRetry) setToast(null)
+
     dispatch({ type: 'EMAIL_SEND_STARTED', requestId })
 
     void sendQuotationEmail(quotation)
@@ -144,18 +158,34 @@ function useSmsReload() {
     const requestId = currentRequest.id
     const brandId = selectedBrandId
 
+    const operation = pendingOperations.current.get(requestId) ?? {
+      operationId: createOperationId(),
+      brandId,
+      creditsByOutlet: { ...creditsByOutlet },
+    }
+
+    pendingOperations.current.set(requestId, operation)
+
     pendingGeneration.current = true
     setIsGenerating(true)
     setQuotationError('')
     setToast(null)
 
     try {
-      const quotation = await createQuotation(brandId, creditsByOutlet)
+      const quotation = await createQuotation(
+        operation.brandId,
+        operation.creditsByOutlet,
+        operation.operationId
+      )
+
+      pendingOperations.current.delete(requestId)
+      setRetryPendingRequestId(null)
 
       dispatch({ type: 'GENERATION_SUCCEEDED', brandId, quotation })
       setViewedRequestId(requestId)
       setQuotationOrigin('top-up')
       setScreen('quotation')
+
       setToast({
         message: 'Quotation generated. SMS credits allocated successfully.',
         variant: 'success',
@@ -165,7 +195,21 @@ function useSmsReload() {
       void refreshCreditBalances()
       deliverQuotation(requestId, quotation)
     } catch (error) {
-      setQuotationError(error instanceof Error ? error.message : 'Quotation generation failed.')
+      const knownFailure = typeof error?.status === 'number' &&
+        error.status >= 400 &&
+        error.status < 500 &&
+        error.status !== 409
+
+      if (knownFailure) {
+        pendingOperations.current.delete(requestId)
+        setRetryPendingRequestId(null)
+      } else {
+        setRetryPendingRequestId(requestId)
+      }
+
+      setQuotationError(
+        error instanceof Error ? error.message : 'Quotation generation failed.'
+      )
     } finally {
       pendingGeneration.current = false
       setIsGenerating(false)
@@ -211,6 +255,7 @@ function useSmsReload() {
     errorsByOutlet,
     totalCredits,
     isGenerating,
+    isRetryPending,
     currentCreditsByOutlet,
     balanceError,
     quotedCredits: getBrandQuotedCredits(workflow, selectedBrandId),
@@ -229,11 +274,11 @@ function useSmsReload() {
     viewQuotationFromHistory,
     backFromQuotation,
     showBrandSelection: () => {
-      if (!pendingGeneration.current) setScreen('choose')
+      if (!pendingGeneration.current && !isRetryPending) setScreen('choose')
     },
     showTopUp: () => setScreen('top-up'),
     showQuotationHistory: () => {
-      if (!pendingGeneration.current) setScreen('history')
+      if (!pendingGeneration.current && !isRetryPending) setScreen('history')
     },
     dismissToast: () => setToast(null),
   }

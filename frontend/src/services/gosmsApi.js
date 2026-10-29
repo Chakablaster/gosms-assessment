@@ -17,7 +17,11 @@ async function requestJson(url, options, request) {
   }
 
   if (!response.ok) {
-    throw new Error(typeof data?.error === 'string' ? data.error : 'The request could not be completed.')
+    const error = new Error(
+      typeof data?.error === 'string' ? data.error : 'The request could not be completed.'
+    )
+    error.status = response.status
+    throw error
   }
 
   return data
@@ -64,15 +68,15 @@ export async function getCreditBalances(request = fetch) {
   }
 }
 
-export async function createQuotation(brandId, creditsByOutlet, request = fetch) {
+export async function createQuotation(brandId, creditsByOutlet, operationId, request = fetch) {
   const data = await requestJson('/api/quotations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ brandId, creditsByOutlet }),
+    body: JSON.stringify({ operationId, brandId, creditsByOutlet }),
   }, request)
 
   if (
-    !data?.quotation?.reference ||
+    typeof data?.quotation?.reference !== 'string' ||
     !Array.isArray(data.quotation.companies)
   ) {
     throw new Error('Invalid quotation received from the server.')
@@ -80,7 +84,7 @@ export async function createQuotation(brandId, creditsByOutlet, request = fetch)
 
   if (
     data?.allocation?.reference !== data.quotation.reference ||
-    data.allocation.alreadyAllocated !== false
+    typeof data.allocation.alreadyAllocated !== 'boolean'
   ) {
     throw new Error('Invalid credit allocation response from the server.')
   }

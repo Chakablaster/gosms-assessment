@@ -2,6 +2,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { getBusinesses, getCreditBalances, createQuotation } from '../services/gosmsApi'
 
+const operationId = 'reload-operation-001'
+
 function response(status, data) {
   return {
     ok: status >= 200 && status < 300,
@@ -71,7 +73,7 @@ describe('GoSMS API service', () => {
       .rejects.toThrow('Invalid credit balances received from the server.')
   })
 
-  it('requests quotation generation and verifies successful credit allocation', async () => {
+  it('sends the operation identifier with quotation generation', async () => {
     const quotation = {
       reference: 'QT-123456789',
       companies: [],
@@ -90,19 +92,40 @@ describe('GoSMS API service', () => {
 
     await expect(createQuotation('silvertree', {
       'st-001': '300',
-    }, request)).resolves.toEqual(quotation)
+    }, operationId, request)).resolves.toEqual(quotation)
 
     expect(request).toHaveBeenCalledWith('/api/quotations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        operationId,
         brandId: 'silvertree',
         creditsByOutlet: { 'st-001': '300' },
       }),
     })
   })
 
-  it('rejects a quotation response without successful allocation', async () => {
+  it('accepts a previously allocated quotation returned by an operation retry', async () => {
+    const quotation = {
+      reference: 'QT-123456789',
+      companies: [],
+      totalCredits: '300',
+    }
+
+    const request = vi.fn().mockResolvedValue(response(200, {
+      quotation,
+      allocation: {
+        reference: quotation.reference,
+        alreadyAllocated: true,
+      },
+    }))
+
+    await expect(createQuotation('silvertree', {
+      'st-001': '300',
+    }, operationId, request)).resolves.toEqual(quotation)
+  })
+
+  it('rejects a quotation response without allocation confirmation', async () => {
     const request = vi.fn().mockResolvedValue(response(201, {
       quotation: {
         reference: 'QT-123456789',
@@ -113,10 +136,10 @@ describe('GoSMS API service', () => {
 
     await expect(createQuotation('silvertree', {
       'st-001': '300',
-    }, request)).rejects.toThrow('Invalid credit allocation response from the server.')
+    }, operationId, request)).rejects.toThrow('Invalid credit allocation response from the server.')
   })
 
-  it('rejects an allocation that does not represent a new credit operation', async () => {
+  it('rejects allocation confirmation with a mismatched reference', async () => {
     const request = vi.fn().mockResolvedValue(response(201, {
       quotation: {
         reference: 'QT-123456789',
@@ -124,14 +147,14 @@ describe('GoSMS API service', () => {
         totalCredits: '300',
       },
       allocation: {
-        reference: 'QT-123456789',
-        alreadyAllocated: true,
+        reference: 'QT-987654321',
+        alreadyAllocated: false,
       },
     }))
 
     await expect(createQuotation('silvertree', {
       'st-001': '300',
-    }, request)).rejects.toThrow('Invalid credit allocation response from the server.')
+    }, operationId, request)).rejects.toThrow('Invalid credit allocation response from the server.')
   })
 
   it('preserves backend validation errors', async () => {
@@ -141,7 +164,20 @@ describe('GoSMS API service', () => {
 
     await expect(createQuotation('silvertree', {
       'st-001': '-1',
-    }, request)).rejects.toThrow('Correct the invalid SMS credit amounts')
+    }, operationId, request)).rejects.toThrow('Correct the invalid SMS credit amounts')
+  })
+
+  it('preserves conflict status for reused operation identifiers', async () => {
+    const request = vi.fn().mockResolvedValue(response(409, {
+      error: 'This top up operation has already been processed with different details.',
+    }))
+
+    await expect(createQuotation('silvertree', {
+      'st-001': '500',
+    }, operationId, request)).rejects.toMatchObject({
+      status: 409,
+      message: 'This top up operation has already been processed with different details.',
+    })
   })
 
   it('handles a backend connection failure', async () => {
@@ -157,6 +193,6 @@ describe('GoSMS API service', () => {
 
     await expect(createQuotation('silvertree', {
       'st-001': '300',
-    }, request)).rejects.toThrow('Invalid quotation received')
+    }, operationId, request)).rejects.toThrow('Invalid quotation received')
   })
 })
