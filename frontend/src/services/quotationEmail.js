@@ -2,7 +2,11 @@ export async function sendQuotationEmail(quotation, request = fetch) {
   let response
 
   try {
-    response = await request('/api/quotations/email', {
+    const url = import.meta.env.PROD
+      ? '/api/gosms?resource=email'
+      : '/api/quotations/email'
+
+    response = await request(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ quotation }),

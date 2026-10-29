@@ -1,3 +1,8 @@
+function apiUrl(resource, localPath) {
+  return import.meta.env.PROD
+    ? `/api/gosms?resource=${resource}`
+    : localPath
+}
 
 async function requestJson(url, options, request) {
   let response
@@ -35,7 +40,11 @@ function isCreditBalanceMap(value) {
 }
 
 export async function getBusinesses(request = fetch) {
-  const data = await requestJson('/api/businesses', { method: 'GET' }, request)
+  const data = await requestJson(
+    apiUrl('businesses', '/api/businesses'),
+    { method: 'GET' },
+    request
+  )
 
   if (
     !Array.isArray(data?.brands) ||
@@ -53,7 +62,11 @@ export async function getBusinesses(request = fetch) {
 }
 
 export async function getCreditBalances(request = fetch) {
-  const data = await requestJson('/api/credits', { method: 'GET' }, request)
+  const data = await requestJson(
+    apiUrl('credits', '/api/credits'),
+    { method: 'GET' },
+    request
+  )
 
   if (
     !isCreditBalanceMap(data?.companyBalances) ||
@@ -69,11 +82,15 @@ export async function getCreditBalances(request = fetch) {
 }
 
 export async function createQuotation(brandId, creditsByOutlet, operationId, request = fetch) {
-  const data = await requestJson('/api/quotations', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ operationId, brandId, creditsByOutlet }),
-  }, request)
+  const data = await requestJson(
+    apiUrl('quotations', '/api/quotations'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operationId, brandId, creditsByOutlet }),
+    },
+    request
+  )
 
   if (
     typeof data?.quotation?.reference !== 'string' ||
