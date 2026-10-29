@@ -1,11 +1,17 @@
-
 import { ReloadError } from './reloadService.js'
 
 const BALANCES_KEY = 'gosms:v1:outlet-balances'
+const OPERATION_PREFIX = 'gosms:v1:operation:'
+const historyKey = (brandId) => `gosms:v1:quotation-history:${brandId}`
 
 const ALLOCATE_SCRIPT = `
 local existing = redis.call('GET', KEYS[1])
 if existing then return {0, existing} end
+
+local historyType = redis.call('TYPE', KEYS[3]).ok
+if historyType ~= 'none' and historyType ~= 'list' then
+  return {-2, 'Quotation history storage is unavailable.'}
+end
 
 for i = 2, #ARGV, 2 do
   local current = tonumber(redis.call('HGET', KEYS[2], ARGV[i]) or '0')
@@ -20,6 +26,7 @@ for i = 2, #ARGV, 2 do
 end
 
 redis.call('SET', KEYS[1], ARGV[1])
+redis.call('LPUSH', KEYS[3], KEYS[1])
 return {1, ARGV[1]}
 `
 
@@ -74,13 +81,54 @@ export function createPersistentReloadService({ redis, quotationService, validat
     return { companyBalances, outletBalances }
   }
 
+  async function getHistoryCount(brandId) {
+    return redis.llen(historyKey(brandId))
+  }
+
+  async function getHistory(brandId) {
+    const operationKeys = await redis.lrange(historyKey(brandId), 0, -1)
+
+    if (!Array.isArray(operationKeys)) {
+      throw new Error('Unexpected Redis quotation history response.')
+    }
+
+    return Promise.all(operationKeys.map(async (operationKey) => {
+      if (typeof operationKey !== 'string' || !operationKey.startsWith(OPERATION_PREFIX)) {
+        throw new Error('Invalid Redis quotation history entry.')
+      }
+
+      const raw = await redis.get(operationKey)
+
+      if (typeof raw !== 'string') {
+        throw new Error('Missing Redis quotation history record.')
+      }
+
+      const record = JSON.parse(raw)
+
+      if (
+        !record?.quotation ||
+        record.quotation.brandId !== brandId ||
+        typeof record.quotation.reference !== 'string'
+      ) {
+        throw new Error('Invalid stored quotation history record.')
+      }
+
+      return {
+        id: operationKey.slice(OPERATION_PREFIX.length),
+        brandId,
+        status: 'generated',
+        quotation: record.quotation,
+      }
+    }))
+  }
+
   async function processReload({ operationId, brandId, creditsByOutlet } = {}) {
     if (typeof operationId !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(operationId)) {
       throw new ReloadError('Invalid top up operation identifier.')
     }
 
     const signature = getSignature(brandId, creditsByOutlet)
-    const operationKey = `gosms:v1:operation:${operationId}`
+    const operationKey = `${OPERATION_PREFIX}${operationId}`
     const existing = await redis.get(operationKey)
 
     if (existing !== null) {
@@ -103,7 +151,7 @@ export function createPersistentReloadService({ redis, quotationService, validat
     const record = JSON.stringify({ signature, quotation })
     const result = await redis.eval(
       ALLOCATE_SCRIPT,
-      [operationKey, BALANCES_KEY],
+      [operationKey, BALANCES_KEY, historyKey(brandId)],
       [record, ...allocations.flatMap((item) => [item.outletId, item.credits])]
     )
 
@@ -113,6 +161,10 @@ export function createPersistentReloadService({ redis, quotationService, validat
 
     if (Number(result[0]) === -1) {
       throw new ReloadError(String(result[1]))
+    }
+
+    if (Number(result[0]) === -2) {
+      throw new ReloadError(String(result[1]), 503)
     }
 
     if (Number(result[0]) !== 0 && Number(result[0]) !== 1) {
@@ -134,5 +186,5 @@ export function createPersistentReloadService({ redis, quotationService, validat
     }
   }
 
-  return { getBalances, processReload }
+  return { getBalances, getHistoryCount, getHistory, processReload }
 }

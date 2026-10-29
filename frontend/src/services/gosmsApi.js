@@ -1,7 +1,11 @@
-function apiUrl(resource, localPath) {
-  return import.meta.env.PROD
-    ? `/api/gosms?resource=${resource}`
-    : localPath
+// Local development endpoints are intentionally inactive:
+// /api/businesses
+// /api/credits
+// /api/quotations
+// /api/quotations/history
+
+function apiUrl(resource) {
+  return `/api/gosms?resource=${resource}`
 }
 
 async function requestJson(url, options, request) {
@@ -39,12 +43,15 @@ function isCreditBalanceMap(value) {
     Object.values(value).every((credits) => typeof credits === 'string' && /^\d+$/.test(credits))
 }
 
+function isHistoryCountMap(value) {
+  return value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.values(value).every((count) => Number.isSafeInteger(count) && count >= 0)
+}
+
 export async function getBusinesses(request = fetch) {
-  const data = await requestJson(
-    apiUrl('businesses', '/api/businesses'),
-    { method: 'GET' },
-    request
-  )
+  const data = await requestJson(apiUrl('businesses'), { method: 'GET' }, request)
 
   if (
     !Array.isArray(data?.brands) ||
@@ -54,23 +61,16 @@ export async function getBusinesses(request = fetch) {
     throw new Error('Invalid business data received.')
   }
 
-  return {
-    brands: data.brands,
-    companies: data.companies,
-    outlets: data.outlets,
-  }
+  return { brands: data.brands, companies: data.companies, outlets: data.outlets }
 }
 
 export async function getCreditBalances(request = fetch) {
-  const data = await requestJson(
-    apiUrl('credits', '/api/credits'),
-    { method: 'GET' },
-    request
-  )
+  const data = await requestJson(apiUrl('credits'), { method: 'GET' }, request)
 
   if (
     !isCreditBalanceMap(data?.companyBalances) ||
-    !isCreditBalanceMap(data?.outletBalances)
+    !isCreditBalanceMap(data?.outletBalances) ||
+    (data.historyCountByBrand !== undefined && !isHistoryCountMap(data.historyCountByBrand))
   ) {
     throw new Error('Invalid credit balances received from the server.')
   }
@@ -78,12 +78,41 @@ export async function getCreditBalances(request = fetch) {
   return {
     companyBalances: data.companyBalances,
     outletBalances: data.outletBalances,
+    ...(data.historyCountByBrand !== undefined
+      ? { historyCountByBrand: data.historyCountByBrand }
+      : {}),
   }
+}
+
+export async function getQuotationHistory(brandId, request = fetch) {
+  const data = await requestJson(
+    `${apiUrl('history')}&brandId=${encodeURIComponent(brandId)}`,
+    { method: 'GET' },
+    request
+  )
+
+  if (
+    !Array.isArray(data?.requests) ||
+    data.requests.some((item) =>
+      typeof item?.id !== 'string' ||
+      item.brandId !== brandId ||
+      item.status !== 'generated' ||
+      typeof item.quotation?.reference !== 'string' ||
+      typeof item.quotation?.generatedAt !== 'string' ||
+      typeof item.quotation?.totalCredits !== 'string' ||
+      !/^\d+$/.test(item.quotation.totalCredits) ||
+      !Array.isArray(item.quotation.companies)
+    )
+  ) {
+    throw new Error('Invalid quotation history received from the server.')
+  }
+
+  return data.requests
 }
 
 export async function createQuotation(brandId, creditsByOutlet, operationId, request = fetch) {
   const data = await requestJson(
-    apiUrl('quotations', '/api/quotations'),
+    apiUrl('quotations'),
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

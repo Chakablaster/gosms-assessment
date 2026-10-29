@@ -1,4 +1,3 @@
-
 import { Redis } from '@upstash/redis'
 import nodemailer from 'nodemailer'
 import { brands, companies, outlets } from '../backend/data/mockData.js'
@@ -104,7 +103,28 @@ export default async function handler(request, response) {
     }
 
     if (request.method === 'GET' && resource === 'credits') {
-      respond(response, 200, await reloadService.getBalances())
+      const [balances, historyCounts] = await Promise.all([
+        reloadService.getBalances(),
+        Promise.all(brands.map((brand) => reloadService.getHistoryCount(brand.id))),
+      ])
+
+      respond(response, 200, {
+        ...balances,
+        historyCountByBrand: Object.fromEntries(
+          brands.map((brand, index) => [brand.id, historyCounts[index]])
+        ),
+      })
+      return
+    }
+
+    if (request.method === 'GET' && resource === 'history') {
+      const brandId = request.query?.brandId
+
+      if (typeof brandId !== 'string' || !brands.some((brand) => brand.id === brandId)) {
+        throw new QuotationError('Client not found.', 404)
+      }
+
+      respond(response, 200, { requests: await reloadService.getHistory(brandId) })
       return
     }
 

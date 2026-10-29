@@ -1,9 +1,13 @@
-
 import { useEffect, useReducer, useRef, useState } from 'react'
 import { getTopUpDetails } from '../logic/topUp'
-import { getBusinesses, getCreditBalances, createQuotation } from '../services/gosmsApi'
+import { getBusinesses, getCreditBalances, getQuotationHistory, createQuotation } from '../services/gosmsApi'
 import { sendQuotationEmail } from '../services/quotationEmail'
-import { initialWorkflowState, workflowReducer, getActiveRequest, getBrandQuotations, getBrandQuotedCredits } from '../logic/quotationWorkflow'
+import {
+  initialWorkflowState,
+  workflowReducer,
+  getActiveRequest,
+  getBrandQuotations,
+} from '../logic/quotationWorkflow'
 
 function createOperationId() {
   const bytes = new Uint8Array(16)
@@ -22,15 +26,23 @@ function useSmsReload() {
   const [screen, setScreen] = useState('choose')
   const [workflow, dispatch] = useReducer(workflowReducer, initialWorkflowState)
   const [viewedRequestId, setViewedRequestId] = useState(null)
+  const [viewedHistoryRequest, setViewedHistoryRequest] = useState(null)
   const [quotationOrigin, setQuotationOrigin] = useState('top-up')
   const [quotationError, setQuotationError] = useState('')
   const [toast, setToast] = useState(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [retryPendingRequestId, setRetryPendingRequestId] = useState(null)
+  const [historyState, setHistoryState] = useState({
+    brandId: '',
+    status: 'idle',
+    requests: [],
+    error: '',
+  })
 
   const pendingGeneration = useRef(false)
   const pendingEmails = useRef(new Set())
   const pendingOperations = useRef(new Map())
+  const historyLoadVersion = useRef(0)
 
   useEffect(() => {
     let active = true
@@ -63,8 +75,18 @@ function useSmsReload() {
     selectedBrandId, creditsByOutlet, brands, companies, outlets
   )
 
-  const previousQuotations = getBrandQuotations(workflow, selectedBrandId)
-  const viewedRequest = workflow.requestsById[viewedRequestId]
+  const localQuotations = getBrandQuotations(workflow, selectedBrandId)
+  const historyForBrand = historyState.brandId === selectedBrandId
+  const previousQuotations = historyForBrand && historyState.status === 'ready'
+    ? historyState.requests
+    : localQuotations
+  const historyStatus = historyForBrand ? historyState.status : 'idle'
+  const historyError = historyForBrand ? historyState.error : ''
+  const persistedQuotationCount = creditBalances?.historyCountByBrand?.[selectedBrandId] ?? 0
+  const quotationCount = Math.max(localQuotations.length, persistedQuotationCount)
+  const viewedRequest = quotationOrigin === 'history'
+    ? viewedHistoryRequest
+    : workflow.requestsById[viewedRequestId]
   const isRetryPending = Boolean(currentRequest && currentRequest.id === retryPendingRequestId)
 
   const currentCreditsByOutlet = creditBalances
@@ -183,8 +205,15 @@ function useSmsReload() {
 
       dispatch({ type: 'GENERATION_SUCCEEDED', brandId, quotation })
       setViewedRequestId(requestId)
+      setViewedHistoryRequest(null)
       setQuotationOrigin('top-up')
       setScreen('quotation')
+      historyLoadVersion.current += 1
+
+      setHistoryState((previous) => previous.brandId === brandId
+        ? { brandId, status: 'idle', requests: [], error: '' }
+        : previous
+      )
 
       setToast({
         message: 'Quotation generated. SMS credits allocated successfully.',
@@ -216,15 +245,45 @@ function useSmsReload() {
     }
   }
 
+  async function loadQuotationHistory(brandId) {
+    const version = ++historyLoadVersion.current
+
+    setHistoryState({ brandId, status: 'loading', requests: [], error: '' })
+
+    try {
+      const requests = await getQuotationHistory(brandId)
+      if (version !== historyLoadVersion.current) return
+      setHistoryState({ brandId, status: 'ready', requests, error: '' })
+    } catch (error) {
+      if (version !== historyLoadVersion.current) return
+      setHistoryState({
+        brandId,
+        status: 'error',
+        requests: [],
+        error: error instanceof Error ? error.message : 'Unable to load quotation history.',
+      })
+    }
+  }
+
+  function showQuotationHistory() {
+    if (pendingGeneration.current || isRetryPending) return
+    setScreen('history')
+    void loadQuotationHistory(selectedBrandId)
+  }
+
   function viewQuotationFromHistory(requestId) {
-    setViewedRequestId(requestId)
+    const request = previousQuotations.find((item) => item.id === requestId)
+    if (!request) return
+
+    setViewedHistoryRequest(request)
+    setViewedRequestId(null)
     setQuotationOrigin('history')
     setToast(null)
     setScreen('quotation')
   }
 
   function retryViewedEmail() {
-    if (viewedRequest?.email?.status !== 'failed') return
+    if (quotationOrigin === 'history' || viewedRequest?.email?.status !== 'failed') return
     deliverQuotation(viewedRequest.id, viewedRequest.quotation, true)
   }
 
@@ -238,6 +297,7 @@ function useSmsReload() {
     }
 
     setViewedRequestId(null)
+    setViewedHistoryRequest(null)
     setToast(null)
     setScreen(quotationOrigin)
   }
@@ -258,10 +318,15 @@ function useSmsReload() {
     isRetryPending,
     currentCreditsByOutlet,
     balanceError,
-    quotedCredits: getBrandQuotedCredits(workflow, selectedBrandId),
     previousQuotations,
+    quotationCount,
+    historyStatus,
+    historyError,
+    quotedCredits: previousQuotations.reduce(
+      (total, request) => total + BigInt(request.quotation.totalCredits), 0n
+    ),
     viewedQuotation: viewedRequest?.quotation,
-    viewedEmail: viewedRequest?.email,
+    viewedEmail: quotationOrigin === 'history' ? null : viewedRequest?.email,
     quotationBackLabel: quotationOrigin === 'history' ? 'Back to History' : 'Back to SMS Top Up',
     quotationError,
     toastMessage: toast?.message ?? '',
@@ -277,8 +342,9 @@ function useSmsReload() {
       if (!pendingGeneration.current && !isRetryPending) setScreen('choose')
     },
     showTopUp: () => setScreen('top-up'),
-    showQuotationHistory: () => {
-      if (!pendingGeneration.current && !isRetryPending) setScreen('history')
+    showQuotationHistory,
+    retryQuotationHistory: () => {
+      if (selectedBrandId) void loadQuotationHistory(selectedBrandId)
     },
     dismissToast: () => setToast(null),
   }

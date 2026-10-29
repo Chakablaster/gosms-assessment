@@ -2,9 +2,11 @@ export async function sendQuotationEmail(quotation, request = fetch) {
   let response
 
   try {
-    const url = import.meta.env.PROD
-      ? '/api/gosms?resource=email'
-      : '/api/quotations/email'
+    // Local development:
+    // const url = '/api/quotations/email'
+
+    // Deployed Vercel API:
+    const url = '/api/gosms?resource=email'
 
     response = await request(url, {
       method: 'POST',
