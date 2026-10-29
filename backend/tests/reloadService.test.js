@@ -1,230 +1,248 @@
-
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { brands, companies, outlets } from '../data/mockData.js'
 import { createQuotationService } from '../services/quotationService.js'
 import { createCreditAllocationService, CreditAllocationError } from '../services/creditAllocationService.js'
 import { createReloadService, ReloadError } from '../services/reloadService.js'
 
-function createServices() {
-  const quotationService = createQuotationService({
-    brands,
-    companies,
-    outlets,
-    clock: () => 1793180000000,
-  })
+const initialReload = {
+  operationId: 'silvertree-reload-001',
+  brandId: 'silvertree',
+  creditsByOutlet: {
+    'st-001': '300',
+    'st-002': '200',
+    'st-003': '400',
+  },
+}
 
+function createServices() {
+  const quotationService = createQuotationService({ brands, companies, outlets })
   const creditAllocationService = createCreditAllocationService({ companies, outlets })
   const reloadService = createReloadService({ quotationService, creditAllocationService })
 
   return { quotationService, creditAllocationService, reloadService }
 }
 
-function reloadPayload(operationId = 'reload-operation-001', creditsByOutlet = {
-  'st-001': '300',
-  'st-002': '200',
-  'st-003': '400',
-}) {
-  return {
-    operationId,
-    brandId: 'silvertree',
-    creditsByOutlet,
+function getThrownError(action) {
+  try {
+    action()
+  } catch (error) {
+    return error
   }
+
+  return null
 }
 
 describe('SMS credit reload workflow', () => {
-  it('generates a quotation and allocates credits to the correct company accounts', () => {
+  it('creates a quotation and credits the correct companies and outlets', () => {
     const { reloadService, creditAllocationService } = createServices()
 
-    const result = reloadService.processReload(reloadPayload())
+    const result = reloadService.processReload(initialReload)
     const balances = creditAllocationService.getBalances()
 
+    expect(result.quotation.brandId).toBe('silvertree')
     expect(result.quotation.totalCredits).toBe('900')
     expect(result.quotation.companies).toHaveLength(2)
-    expect(result.allocation.reference).toBe(result.quotation.reference)
-    expect(result.allocation.alreadyAllocated).toBe(false)
-
-    expect(balances.companyBalances['silvertree-oris']).toBe('500')
-    expect(balances.companyBalances['silvertree-binjai']).toBe('400')
-    expect(balances.companyBalances['silvertree-us']).toBe('0')
-    expect(balances.outletBalances['st-001']).toBe('300')
-    expect(balances.outletBalances['st-002']).toBe('200')
-    expect(balances.outletBalances['st-003']).toBe('400')
-  })
-
-  it('returns the original quotation when the same operation is retried', () => {
-    const { reloadService, creditAllocationService } = createServices()
-    const payload = reloadPayload()
-
-    const first = reloadService.processReload(payload)
-    const retry = reloadService.processReload(payload)
-
-    expect(retry.quotation).toEqual(first.quotation)
-    expect(retry.allocation.reference).toBe(first.quotation.reference)
-    expect(first.allocation.alreadyAllocated).toBe(false)
-    expect(retry.allocation.alreadyAllocated).toBe(true)
-
-    const balances = creditAllocationService.getBalances()
-
-    expect(balances.companyBalances['silvertree-oris']).toBe('500')
-    expect(balances.companyBalances['silvertree-binjai']).toBe('400')
-  })
-
-  it('rejects changed credit amounts using an already processed operation identifier', () => {
-    const { reloadService, creditAllocationService } = createServices()
-
-    reloadService.processReload(reloadPayload())
-
-    const changed = reloadPayload('reload-operation-001', {
-      'st-001': '600',
+    expect(result.allocation).toEqual({
+      reference: result.quotation.reference,
+      alreadyAllocated: false,
     })
-
-    expect(() => reloadService.processReload(changed))
-      .toThrow('This top up operation has already been processed with different details.')
-
-    expect(creditAllocationService.getBalances().outletBalances['st-001']).toBe('300')
+    expect(balances.companyBalances).toMatchObject({
+      'silvertree-oris': '500',
+      'silvertree-binjai': '400',
+      'silvertree-us': '0',
+    })
+    expect(balances.outletBalances).toMatchObject({
+      'st-001': '300',
+      'st-002': '200',
+      'st-003': '400',
+      'st-004': '0',
+    })
   })
 
-  it('rejects reusing an operation identifier for another brand', () => {
+  it('returns the original quotation on retry without adding credits again', () => {
+    // A client might retry if it never received the first response.
     const { reloadService, creditAllocationService } = createServices()
+    const first = reloadService.processReload(initialReload)
+    const balancesAfterFirst = creditAllocationService.getBalances()
 
-    reloadService.processReload(reloadPayload())
+    const retry = reloadService.processReload(initialReload)
 
-    expect(() => reloadService.processReload({
-      operationId: 'reload-operation-001',
+    expect(first.allocation.alreadyAllocated).toBe(false)
+    expect(retry.quotation).toEqual(first.quotation)
+    expect(retry.allocation).toEqual({
+      reference: first.quotation.reference,
+      alreadyAllocated: true,
+    })
+    expect(creditAllocationService.getBalances()).toEqual(balancesAfterFirst)
+  })
+
+  it('rejects changed amounts under an already completed operation ID', () => {
+    const { reloadService, creditAllocationService } = createServices()
+    reloadService.processReload(initialReload)
+    const originalBalances = creditAllocationService.getBalances()
+
+    const changed = {
+      ...initialReload,
+      creditsByOutlet: { ...initialReload.creditsByOutlet, 'st-001': '350' },
+    }
+    const error = getThrownError(() => reloadService.processReload(changed))
+
+    expect(error).toBeInstanceOf(ReloadError)
+    expect(error).toMatchObject({
+      status: 409,
+      message: 'This top up operation has already been processed with different details.',
+    })
+    expect(creditAllocationService.getBalances()).toEqual(originalBalances)
+  })
+
+  it('rejects reusing an operation ID for a different brand', () => {
+    const { reloadService, creditAllocationService } = createServices()
+    reloadService.processReload(initialReload)
+    const originalBalances = creditAllocationService.getBalances()
+
+    const error = getThrownError(() => reloadService.processReload({
+      operationId: initialReload.operationId,
       brandId: 'gordon-grill',
       creditsByOutlet: { 'gg-001': '50' },
-    })).toThrow(ReloadError)
+    }))
 
-    expect(creditAllocationService.getBalances().outletBalances['gg-001']).toBe('0')
+    expect(error).toBeInstanceOf(ReloadError)
+    expect(error).toMatchObject({
+      status: 409,
+      message: 'This top up operation has already been processed with different details.',
+    })
+    expect(creditAllocationService.getBalances()).toEqual(originalBalances)
   })
 
-  it('treats separate operations as separate top ups', () => {
+  it('adds credits again when a new operation ID is used', () => {
     const { reloadService, creditAllocationService } = createServices()
+    const first = reloadService.processReload({
+      ...initialReload,
+      creditsByOutlet: { 'st-001': '100' },
+    })
+    const second = reloadService.processReload({
+      ...initialReload,
+      operationId: 'silvertree-reload-002',
+      creditsByOutlet: { 'st-001': '100' },
+    })
 
-    const first = reloadService.processReload(
-      reloadPayload('reload-operation-001', { 'st-001': '100' })
-    )
-
-    const second = reloadService.processReload(
-      reloadPayload('reload-operation-002', { 'st-001': '100' })
-    )
-
-    expect(first.quotation.reference).not.toBe(second.quotation.reference)
+    expect(first.allocation.alreadyAllocated).toBe(false)
     expect(second.allocation.alreadyAllocated).toBe(false)
+    expect(second.quotation.reference).not.toBe(first.quotation.reference)
     expect(creditAllocationService.getBalances().outletBalances['st-001']).toBe('200')
   })
 
-  it('recognizes the same request even when outlet keys are reordered', () => {
+  it('recognises a retry even when the outlet entries arrive in a different order', () => {
+    // The order of fields in a request should not change what was allocated.
     const { reloadService, creditAllocationService } = createServices()
+    const first = reloadService.processReload({
+      ...initialReload,
+      creditsByOutlet: { 'st-003': '400', 'st-001': '300' },
+    })
+    const balancesAfterFirst = creditAllocationService.getBalances()
 
-    const first = reloadService.processReload(
-      reloadPayload('reload-operation-001', {
-        'st-003': '400',
-        'st-001': '300',
-      })
-    )
+    const retry = reloadService.processReload({
+      ...initialReload,
+      creditsByOutlet: { 'st-001': '300', 'st-003': '400' },
+    })
 
-    const retry = reloadService.processReload(
-      reloadPayload('reload-operation-001', {
-        'st-001': '300',
-        'st-003': '400',
-      })
-    )
-
-    expect(retry.quotation.reference).toBe(first.quotation.reference)
+    expect(retry.quotation).toEqual(first.quotation)
     expect(retry.allocation.alreadyAllocated).toBe(true)
-    expect(creditAllocationService.getBalances().companyBalances['silvertree-oris']).toBe('300')
-    expect(creditAllocationService.getBalances().companyBalances['silvertree-binjai']).toBe('400')
+    expect(creditAllocationService.getBalances()).toEqual(balancesAfterFirst)
   })
 
-  it('leaves zero-credit outlets unchanged', () => {
+  it('leaves outlets with zero requested credits unchanged', () => {
     const { reloadService, creditAllocationService } = createServices()
-
-    reloadService.processReload(
-      reloadPayload('reload-operation-001', {
-        'st-001': '250',
-        'st-002': '0',
-        'st-003': '0',
-      })
-    )
+    reloadService.processReload({
+      ...initialReload,
+      creditsByOutlet: { 'st-001': '250', 'st-002': '0', 'st-003': '0' },
+    })
 
     const balances = creditAllocationService.getBalances()
-
-    expect(balances.outletBalances['st-001']).toBe('250')
-    expect(balances.outletBalances['st-002']).toBe('0')
-    expect(balances.outletBalances['st-003']).toBe('0')
+    expect(balances.outletBalances).toMatchObject({
+      'st-001': '250',
+      'st-002': '0',
+      'st-003': '0',
+    })
+    expect(balances.companyBalances['silvertree-oris']).toBe('250')
     expect(balances.companyBalances['silvertree-binjai']).toBe('0')
   })
 
-  it('allows a corrected retry when quotation generation failed', () => {
+  it('allows a corrected request after quotation generation fails', () => {
+    // A rejected request must not reserve its operation ID.
     const { reloadService, creditAllocationService } = createServices()
+    const balancesBefore = creditAllocationService.getBalances()
 
-    expect(() => reloadService.processReload(
-      reloadPayload('reload-operation-001', { 'st-001': '-100' })
-    )).toThrow()
+    expect(() => reloadService.processReload({
+      ...initialReload,
+      creditsByOutlet: { 'st-001': '-100' },
+    })).toThrow('Correct the invalid SMS credit amounts before generating a quotation.')
+    expect(creditAllocationService.getBalances()).toEqual(balancesBefore)
 
-    expect(creditAllocationService.getBalances().outletBalances['st-001']).toBe('0')
-
-    const corrected = reloadService.processReload(
-      reloadPayload('reload-operation-001', { 'st-001': '100' })
-    )
+    const corrected = reloadService.processReload({
+      ...initialReload,
+      creditsByOutlet: { 'st-001': '100' },
+    })
 
     expect(corrected.allocation.alreadyAllocated).toBe(false)
     expect(creditAllocationService.getBalances().outletBalances['st-001']).toBe('100')
   })
 
-  it('allows retrying after allocation fails without recording a completed operation', () => {
+  it('allows retrying when credit allocation fails the first time', () => {
+    // Simulate a temporary allocation failure, then let the real allocator handle the retry.
     const { quotationService, creditAllocationService } = createServices()
-    let attempts = 0
-
-    const failingAllocationService = {
-      allocate(quotation) {
-        attempts += 1
-
-        if (attempts === 1) {
-          throw new CreditAllocationError('Credit processing temporarily failed.')
-        }
-
-        return creditAllocationService.allocate(quotation)
-      },
-    }
-
+    const allocate = vi.fn()
+      .mockImplementationOnce(() => {
+        throw new CreditAllocationError('Credit processing temporarily failed.')
+      })
+      .mockImplementation((quotation) => creditAllocationService.allocate(quotation))
     const reloadService = createReloadService({
       quotationService,
-      creditAllocationService: failingAllocationService,
+      creditAllocationService: { allocate },
     })
+    const request = { ...initialReload, creditsByOutlet: { 'st-001': '150' } }
+    const balancesBefore = creditAllocationService.getBalances()
 
-    const payload = reloadPayload('reload-operation-001', { 'st-001': '150' })
-
-    expect(() => reloadService.processReload(payload))
+    expect(() => reloadService.processReload(request))
       .toThrow('Credit processing temporarily failed.')
+    expect(creditAllocationService.getBalances()).toEqual(balancesBefore)
 
-    expect(creditAllocationService.getBalances().outletBalances['st-001']).toBe('0')
+    const retry = reloadService.processReload(request)
 
-    const retry = reloadService.processReload(payload)
-
-    expect(attempts).toBe(2)
+    expect(allocate).toHaveBeenCalledTimes(2)
     expect(retry.allocation.alreadyAllocated).toBe(false)
     expect(creditAllocationService.getBalances().outletBalances['st-001']).toBe('150')
   })
 
-  it('rejects invalid operation identifiers without generating allocations', () => {
+  it('rejects missing, malformed and out-of-range operation IDs', () => {
+    // Operation IDs must be 8–128 characters and use letters, numbers, _ or -.
     const { reloadService, creditAllocationService } = createServices()
+    const balancesBefore = creditAllocationService.getBalances()
 
-    for (const operationId of ['', 'invalid!', null]) {
-      expect(() => reloadService.processReload(
-        reloadPayload(operationId)
-      )).toThrow('Invalid top up operation identifier.')
+    for (const operationId of ['', 'x'.repeat(7), 'x'.repeat(129), 'reload 001', null]) {
+      expect(() => reloadService.processReload({ ...initialReload, operationId }))
+        .toThrow('Invalid top up operation identifier.')
     }
 
     expect(() => reloadService.processReload({
       brandId: 'silvertree',
-      creditsByOutlet: { 'st-001': '300' },
+      creditsByOutlet: { 'st-001': '100' },
     })).toThrow('Invalid top up operation identifier.')
+    expect(creditAllocationService.getBalances()).toEqual(balancesBefore)
+  })
 
-    const balances = creditAllocationService.getBalances()
+  it('accepts operation IDs at the minimum and maximum allowed lengths', () => {
+    const { reloadService, creditAllocationService } = createServices()
 
-    expect(balances.companyBalances['silvertree-oris']).toBe('0')
-    expect(balances.companyBalances['silvertree-binjai']).toBe('0')
+    for (const length of [8, 128]) {
+      const result = reloadService.processReload({
+        ...initialReload,
+        operationId: 'x'.repeat(length),
+        creditsByOutlet: { 'st-001': '100' },
+      })
+      expect(result.allocation.alreadyAllocated).toBe(false)
+    }
+
+    expect(creditAllocationService.getBalances().outletBalances['st-001']).toBe('200')
   })
 })

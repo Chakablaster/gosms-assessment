@@ -15,7 +15,27 @@ export default defineConfig({
   },
   test: {
     root: '.',
-    environment: 'jsdom',
-    setupFiles: ['./frontend/src/tests/setup.js'],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'frontend-ui',
+          environment: 'jsdom',
+          include: ['frontend/src/tests/**/*.test.jsx'],
+          setupFiles: ['./frontend/src/tests/setup.js'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'backend-and-logic',
+          environment: 'node',
+          include: [
+            'backend/tests/**/*.test.js',
+            'frontend/src/tests/**/*.test.js',
+          ],
+        },
+      },
+    ],
   },
 })
